@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Trash2, AlertTriangle, Wand2, RefreshCw, Car, Calendar, Plus, X, Edit3 } from 'lucide-react';
+import { AlertTriangle, Wand2, RefreshCw, Car, Calendar, Plus, Edit3 } from 'lucide-react';
 import type { Show, Assignment, Role, CastMember, DayStatus } from '~backend/scheduler/types';
 import { formatTime, formatDate } from '../utils/dateUtils';
 
@@ -38,6 +38,9 @@ export function ScheduleGrid({
 }: ScheduleGridProps) {
   const [editingCell, setEditingCell] = useState<string | null>(null);
 
+  // Filter out removed shows (we'll use status management instead of actual removal)
+  const visibleShows = shows.filter(show => show.status !== 'removed');
+
   // Group assignments by show and role for easy lookup
   const assignmentMap = new Map<string, string>();
   assignments.forEach(assignment => {
@@ -67,7 +70,7 @@ export function ScheduleGrid({
 
   // Get performers who are OFF for each show
   const getOffPerformers = (showId: string): string[] => {
-    const show = shows.find(s => s.id === showId);
+    const show = visibleShows.find(s => s.id === showId);
     if (show && show.status !== 'show') {
       return []; // No OFF list for travel/day off days
     }
@@ -93,10 +96,10 @@ export function ScheduleGrid({
 
   // Get week number from first show
   const getWeekFromShows = (): string => {
-    if (shows.length === 0) return '';
+    if (visibleShows.length === 0) return '';
     
     try {
-      const firstShowDate = new Date(shows[0].date);
+      const firstShowDate = new Date(visibleShows[0].date);
       const startOfYear = new Date(firstShowDate.getFullYear(), 0, 1);
       const pastDaysOfYear = (firstShowDate.getTime() - startOfYear.getTime()) / 86400000;
       const weekNumber = Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
@@ -106,26 +109,27 @@ export function ScheduleGrid({
     }
   };
 
-  // Get day status options
-  const getDayStatusOptions = () => [
-    { value: 'show', label: 'Show', icon: '🎭' },
-    { value: 'travel', label: 'Travel', icon: '🚗' },
-    { value: 'dayoff', label: 'Day Off', icon: '🏠' }
-  ];
-
-  // Handle day status change with confirmation
-  const handleDayStatusChange = (showId: string, newStatus: DayStatus) => {
-    const show = shows.find(s => s.id === showId);
+  // Handle day status change with confirmation and removal
+  const handleDayStatusChange = (showId: string, newStatus: string) => {
+    const show = visibleShows.find(s => s.id === showId);
     if (!show) return;
+
+    // Handle removal
+    if (newStatus === 'remove') {
+      if (confirm('Are you sure you want to remove this day from the schedule?')) {
+        onRemoveShow(showId);
+      }
+      return;
+    }
 
     const hasAssignments = assignments.some(a => a.showId === showId);
     
     if (show.status === 'show' && newStatus !== 'show' && hasAssignments) {
       if (confirm('This will clear all cast assignments for this day. Continue?')) {
-        onShowStatusChange(showId, newStatus);
+        onShowStatusChange(showId, newStatus as DayStatus);
       }
     } else {
-      onShowStatusChange(showId, newStatus);
+      onShowStatusChange(showId, newStatus as DayStatus);
     }
   };
 
@@ -235,7 +239,7 @@ export function ScheduleGrid({
     return formatTime(callTime);
   };
 
-  if (shows.length === 0) {
+  if (visibleShows.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -263,7 +267,7 @@ export function ScheduleGrid({
               variant="outline"
               size="sm"
               onClick={onAutoGenerate}
-              disabled={isGenerating || shows.filter(s => s.status === 'show').length === 0}
+              disabled={isGenerating || visibleShows.filter(s => s.status === 'show').length === 0}
             >
               {isGenerating ? (
                 <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -273,7 +277,6 @@ export function ScheduleGrid({
               Auto Generate
             </Button>
             <Button variant="outline" size="sm" onClick={onClearAll}>
-              <Trash2 className="h-4 w-4 mr-2" />
               Clear All
             </Button>
             <Button variant="outline" size="sm" onClick={onAddShow}>
@@ -286,206 +289,164 @@ export function ScheduleGrid({
       <CardContent>
         <div className="w-full overflow-x-auto">
           <div className="min-w-fit">
-            {/* Header Section */}
-            <div className="mb-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="text-center">
-                  <div className="font-bold text-lg mb-4">STOMP - Week {getWeekFromShows()}</div>
-                  <div className="h-px bg-gray-300 mb-4"></div>
-                  
-                  {/* Main Grid Container - Full Width */}
-                  <div className="grid gap-3 w-full" style={{ gridTemplateColumns: `120px repeat(${shows.length}, 1fr) 60px` }}>
-                    {/* Empty cell for role column */}
-                    <div></div>
-                    
-                    {/* Date Headers - Editable */}
-                    {shows.map((show) => (
-                      <div key={`date-${show.id}`} className="text-sm font-medium text-center">
-                        {renderEditableCell(
-                          show.id, 
-                          'date', 
-                          show.date,
-                          new Date(show.date).toLocaleDateString('en-US', { 
-                            weekday: 'short', 
-                            month: 'numeric', 
-                            day: 'numeric' 
-                          })
-                        )}
-                      </div>
-                    ))}
-
-                    {/* Add/Remove Column */}
-                    <div></div>
-                    
-                    {/* Day Status Controls */}
-                    <div className="font-medium text-sm text-left flex items-center">Status</div>
-                    {shows.map((show) => (
-                      <div key={`status-${show.id}`} className="flex justify-center">
-                        <Select
-                          value={show.status}
-                          onValueChange={(value: DayStatus) => handleDayStatusChange(show.id, value)}
-                        >
-                          <SelectTrigger className="text-xs h-7 w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="show">
-                              <span className="flex items-center space-x-2">
-                                <span>Show</span>
-                              </span>
-                            </SelectItem>
-                            <SelectItem value="travel">
-                              <span className="flex items-center space-x-2">
-                                <span>Travel</span>
-                              </span>
-                            </SelectItem>
-                            <SelectItem value="dayoff">
-                              <span className="flex items-center space-x-2">
-                                <span>Day Off</span>
-                              </span>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-
-                    {/* Remove Show Buttons */}
-                    <div className="text-xs text-gray-500">Remove</div>
-                    
-                    {/* Show Times Label */}
-                    <div className="font-medium text-sm text-left flex items-center">Show</div>
-                    {/* Show Times - Editable */}
-                    {shows.map((show) => (
-                      <div key={`show-${show.id}`} className="text-xs font-medium text-center">
-                        {show.status === 'show' ? renderEditableCell(
-                          show.id,
-                          'time',
-                          show.time,
-                          formatTime(show.time)
-                        ) : '-'}
-                      </div>
-                    ))}
-
-                    {/* Remove Show Buttons */}
-                    {shows.map((show) => (
-                      <div key={`remove-${show.id}`} className="flex justify-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onRemoveShow(show.id)}
-                          className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                    
-                    {/* Call Times Label */}
-                    <div className="font-medium text-sm text-left flex items-center">Call</div>
-                    {/* Call Times - Editable */}
-                    {shows.map((show) => (
-                      <div key={`call-${show.id}`} className="text-xs text-gray-600 text-center">
-                        {show.status === 'show' ? renderEditableCell(
-                          show.id,
-                          'callTime',
-                          show.callTime,
-                          formatCallTimeDisplay(show.callTime)
-                        ) : '-'}
-                      </div>
-                    ))}
-
-                    {/* Empty cell for alignment */}
-                    <div></div>
-                  </div>
-                  
-                  <div className="h-px bg-gray-300 mt-4"></div>
-                </div>
-              </div>
+            {/* Main Header */}
+            <div className="text-center font-bold text-lg mb-4">
+              STOMP - Week {getWeekFromShows()}
             </div>
+            
+            <div className="border-t-2 border-black mb-4"></div>
 
-            {/* Role Assignment Grid - Full Width */}
-            <div className="space-y-2">
-              {roles.map((role) => (
-                <div key={role} className="grid gap-3 w-full" style={{ gridTemplateColumns: `120px repeat(${shows.length}, 1fr) 60px` }}>
-                  {/* Role Label */}
-                  <div className="flex items-center font-medium text-sm py-2 px-3 bg-gray-50 rounded">
-                    <span className="truncate">{role}</span>
-                  </div>
-                  
-                  {/* Assignment Dropdowns or Special Day Content */}
-                  {shows.map((show) => {
-                    if (show.status !== 'show') {
+            {/* Schedule Table */}
+            <table className="w-full border-collapse border border-gray-300">
+              <thead>
+                {/* Row 1: Date Headers */}
+                <tr>
+                  <th className="border border-gray-300 p-2 bg-gray-50 w-24 text-left font-medium"></th>
+                  {visibleShows.map((show) => (
+                    <th key={`date-${show.id}`} className="border border-gray-300 p-2 bg-gray-50 text-center font-medium min-w-24">
+                      {renderEditableCell(
+                        show.id, 
+                        'date', 
+                        show.date,
+                        formatDate(show.date)
+                      )}
+                    </th>
+                  ))}
+                </tr>
+
+                {/* Row 2: Status Dropdowns */}
+                <tr>
+                  <th className="border border-gray-300 p-2 bg-gray-50 text-left font-medium text-sm">Status</th>
+                  {visibleShows.map((show) => (
+                    <th key={`status-${show.id}`} className="border border-gray-300 p-1 bg-gray-50">
+                      <Select
+                        value={show.status}
+                        onValueChange={(value) => handleDayStatusChange(show.id, value)}
+                      >
+                        <SelectTrigger className="text-xs h-7 w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="show">Show</SelectItem>
+                          <SelectItem value="travel">Travel Day</SelectItem>
+                          <SelectItem value="dayoff">Day Off</SelectItem>
+                          <SelectItem value="remove">Remove Day</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </th>
+                  ))}
+                </tr>
+
+                {/* Row 3: Show Times */}
+                <tr>
+                  <th className="border border-gray-300 p-2 bg-gray-50 text-left font-medium text-sm">Show</th>
+                  {visibleShows.map((show) => (
+                    <th key={`show-${show.id}`} className="border border-gray-300 p-2 bg-gray-50 text-center text-xs font-medium">
+                      {show.status === 'show' ? renderEditableCell(
+                        show.id,
+                        'time',
+                        show.time,
+                        formatTime(show.time)
+                      ) : '-'}
+                    </th>
+                  ))}
+                </tr>
+
+                {/* Row 4: Call Times */}
+                <tr>
+                  <th className="border border-gray-300 p-2 bg-gray-50 text-left font-medium text-sm">Call</th>
+                  {visibleShows.map((show) => (
+                    <th key={`call-${show.id}`} className="border border-gray-300 p-2 bg-gray-50 text-center text-xs text-gray-600">
+                      {show.status === 'show' ? renderEditableCell(
+                        show.id,
+                        'callTime',
+                        show.callTime,
+                        formatCallTimeDisplay(show.callTime)
+                      ) : '-'}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody>
+                {/* Separator Row */}
+                <tr>
+                  <td colSpan={visibleShows.length + 1} className="border-t-2 border-black h-1 p-0"></td>
+                </tr>
+
+                {/* Role Assignment Rows */}
+                {roles.map((role) => (
+                  <tr key={role}>
+                    <td className="border border-gray-300 p-2 bg-gray-50 font-medium text-sm">
+                      {role}
+                    </td>
+                    {visibleShows.map((show) => {
+                      if (show.status !== 'show') {
+                        return (
+                          <td key={`${role}-${show.id}`} className="border border-gray-300 p-1 text-center">
+                            {renderSpecialDayContent(show)}
+                          </td>
+                        );
+                      }
+
+                      const currentAssignment = getAssignment(show.id, role);
+                      const hasError = hasConflict(show.id, role, currentAssignment);
+                      const eligibleCast = getEligibleCast(role);
+                      
                       return (
-                        <div key={`${role}-${show.id}`} className="flex justify-center">
-                          {renderSpecialDayContent(show)}
-                        </div>
-                      );
-                    }
-
-                    const currentAssignment = getAssignment(show.id, role);
-                    const hasError = hasConflict(show.id, role, currentAssignment);
-                    const eligibleCast = getEligibleCast(role);
-                    
-                    return (
-                      <div key={`${role}-${show.id}`} className="flex justify-center">
-                        <Select
-                          value={currentAssignment || "none"}
-                          onValueChange={(value) => onAssignmentChange(show.id, role, value === "none" ? "" : value)}
-                        >
-                          <SelectTrigger 
-                            className={`text-xs h-8 w-full ${hasError ? 'border-red-500 bg-red-50' : ''}`}
+                        <td key={`${role}-${show.id}`} className="border border-gray-300 p-1">
+                          <Select
+                            value={currentAssignment || "none"}
+                            onValueChange={(value) => onAssignmentChange(show.id, role, value === "none" ? "" : value)}
                           >
-                            <SelectValue placeholder="Select..." />
-                            {hasError && (
-                              <AlertTriangle className="h-3 w-3 text-red-500 ml-1 flex-shrink-0" />
-                            )}
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            {eligibleCast.map((member) => (
-                              <SelectItem key={member.name} value={member.name}>
-                                {member.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    );
-                  })}
+                            <SelectTrigger 
+                              className={`text-xs h-8 w-full ${hasError ? 'border-red-500 bg-red-50' : ''}`}
+                            >
+                              <SelectValue placeholder="Select..." />
+                              {hasError && (
+                                <AlertTriangle className="h-3 w-3 text-red-500 ml-1 flex-shrink-0" />
+                              )}
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {eligibleCast.map((member) => (
+                                <SelectItem key={member.name} value={member.name}>
+                                  {member.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
 
-                  {/* Empty cell for alignment */}
-                  <div></div>
-                </div>
-              ))}
-            </div>
+                {/* Separator Row for OFF Section */}
+                {assignments.length > 0 && (
+                  <tr>
+                    <td colSpan={visibleShows.length + 1} className="border-t-2 border-black h-1 p-0"></td>
+                  </tr>
+                )}
 
-            {/* Separator */}
-            <div className="my-6">
-              <div className="h-px bg-gray-300"></div>
-            </div>
-
-            {/* OFF Section - Only show if there are assignments */}
-            {assignments.length > 0 && (
-              <div className="space-y-2">
-                {/* Calculate max OFF performers needed */}
-                {(() => {
-                  const activeShows = shows.filter(show => show.status === 'show');
+                {/* OFF Section - Only show if there are assignments */}
+                {assignments.length > 0 && (() => {
+                  const activeShows = visibleShows.filter(show => show.status === 'show');
                   const maxOffCount = Math.max(...activeShows.map(show => getOffPerformers(show.id).length), 1);
                   
                   return Array.from({ length: maxOffCount }, (_, index) => (
-                    <div key={`off-row-${index}`} className="grid gap-3 w-full" style={{ gridTemplateColumns: `120px repeat(${shows.length}, 1fr) 60px` }}>
-                      {/* OFF Label - only show on first row */}
-                      <div className="flex items-center font-medium text-sm py-2 px-3 bg-gray-50 rounded">
-                        <span>{index === 0 ? 'OFF' : ''}</span>
-                      </div>
-                      
-                      {/* OFF Performers per show */}
-                      {shows.map((show) => {
+                    <tr key={`off-row-${index}`}>
+                      <td className="border border-gray-300 p-2 bg-gray-50 font-medium text-sm">
+                        {index === 0 ? 'OFF' : ''}
+                      </td>
+                      {visibleShows.map((show) => {
                         if (show.status !== 'show') {
                           return (
-                            <div key={`off-${show.id}-${index}`} className="text-xs p-2 bg-gray-100 rounded h-8 text-center flex items-center justify-center">
-                              <span className="text-gray-500 italic">N/A</span>
-                            </div>
+                            <td key={`off-${show.id}-${index}`} className="border border-gray-300 p-2 text-center">
+                              <div className="text-xs bg-gray-100 rounded h-6 flex items-center justify-center">
+                                <span className="text-gray-500 italic">N/A</span>
+                              </div>
+                            </td>
                           );
                         }
 
@@ -493,19 +454,18 @@ export function ScheduleGrid({
                         const performer = offPerformers[index] || '';
                         
                         return (
-                          <div key={`off-${show.id}-${index}`} className="text-xs p-2 bg-gray-50 rounded h-8 text-center flex items-center justify-center">
-                            <span className="text-gray-700">{performer}</span>
-                          </div>
+                          <td key={`off-${show.id}-${index}`} className="border border-gray-300 p-2 text-center">
+                            <div className="text-xs bg-gray-50 rounded h-6 flex items-center justify-center">
+                              <span className="text-gray-700">{performer}</span>
+                            </div>
+                          </td>
                         );
                       })}
-
-                      {/* Empty cell for alignment */}
-                      <div></div>
-                    </div>
+                    </tr>
                   ));
                 })()}
-              </div>
-            )}
+              </tbody>
+            </table>
           </div>
         </div>
       </CardContent>
