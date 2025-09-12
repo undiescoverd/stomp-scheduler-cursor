@@ -16,10 +16,30 @@ interface ShowAssignment {
   [role: string]: string;
 }
 
+interface ConsecutiveSequence {
+  startIndex: number;
+  endIndex: number;
+  count: number;
+  startDate: string;
+  endDate: string;
+}
+
+interface PerformerShowData {
+  showIndexes: Set<number>;
+  sortedShows: Array<{ show: Show; index: number }>;
+  maxConsecutive: number;
+  sequences: ConsecutiveSequence[];
+}
+
 export class SchedulingAlgorithm {
   private shows: Show[];
   private assignments: Map<string, ShowAssignment>;
   private castMembers: CastMember[];
+  
+  // Cached data structures for performance
+  private _sortedActiveShows: Show[] | null = null;
+  private _showIndexMap: Map<string, number> | null = null;
+  private _performerShowCache: Map<string, PerformerShowData> | null = null;
 
   constructor(shows: Show[], castMembers?: CastMember[]) {
     this.shows = shows;
@@ -39,8 +59,166 @@ export class SchedulingAlgorithm {
     });
   }
 
+  // Clear caches when data changes
+  private clearCaches(): void {
+    this._sortedActiveShows = null;
+    this._showIndexMap = null;
+    this._performerShowCache = null;
+  }
+
+  // Get sorted active shows with caching
+  private getSortedActiveShows(): Show[] {
+    if (this._sortedActiveShows === null) {
+      this._sortedActiveShows = this.shows
+        .filter(show => show.status === "show")
+        .sort((a, b) => {
+          const dateCompare = a.date.localeCompare(b.date);
+          if (dateCompare !== 0) return dateCompare;
+          return a.time.localeCompare(b.time);
+        });
+    }
+    return this._sortedActiveShows;
+  }
+
+  // Get show index mapping with caching
+  private getShowIndexMap(): Map<string, number> {
+    if (this._showIndexMap === null) {
+      this._showIndexMap = new Map();
+      const sortedShows = this.getSortedActiveShows();
+      sortedShows.forEach((show, index) => {
+        this._showIndexMap!.set(show.id, index);
+      });
+    }
+    return this._showIndexMap;
+  }
+
+  // Optimized consecutive show analysis
+  private analyzeConsecutiveShows(assignments: Assignment[]): Map<string, PerformerShowData> {
+    if (this._performerShowCache !== null) {
+      return this._performerShowCache;
+    }
+
+    const sortedShows = this.getSortedActiveShows();
+    const showIndexMap = this.getShowIndexMap();
+    const performerData = new Map<string, PerformerShowData>();
+
+    // Initialize data for all cast members
+    for (const member of this.castMembers) {
+      performerData.set(member.name, {
+        showIndexes: new Set<number>(),
+        sortedShows: [],
+        maxConsecutive: 0,
+        sequences: []
+      });
+    }
+
+    // Build performer show indexes efficiently
+    for (const assignment of assignments) {
+      const showIndex = showIndexMap.get(assignment.showId);
+      if (showIndex !== undefined) {
+        const data = performerData.get(assignment.performer);
+        if (data) {
+          data.showIndexes.add(showIndex);
+        }
+      }
+    }
+
+    // Analyze consecutive sequences for each performer
+    for (const [performerName, data] of performerData) {
+      if (data.showIndexes.size === 0) continue;
+
+      // Convert to sorted array of indexes
+      const sortedIndexes = Array.from(data.showIndexes).sort((a, b) => a - b);
+      
+      // Build show data
+      data.sortedShows = sortedIndexes.map(index => ({
+        show: sortedShows[index],
+        index
+      }));
+
+      // Find consecutive sequences using optimized algorithm
+      this.findConsecutiveSequences(data, sortedShows);
+    }
+
+    this._performerShowCache = performerData;
+    return performerData;
+  }
+
+  // Optimized consecutive sequence detection
+  private findConsecutiveSequences(data: PerformerShowData, sortedShows: Show[]): void {
+    const sortedIndexes = Array.from(data.showIndexes).sort((a, b) => a - b);
+    if (sortedIndexes.length === 0) return;
+
+    const sequences: ConsecutiveSequence[] = [];
+    let currentSequenceStart = 0;
+    let maxConsecutive = 1;
+
+    // Single pass algorithm to find consecutive sequences
+    for (let i = 1; i < sortedIndexes.length; i++) {
+      const currentIndex = sortedIndexes[i];
+      const prevIndex = sortedIndexes[i - 1];
+      
+      // Check if shows are consecutive (considering date gaps)
+      const isConsecutive = this.areShowsConsecutive(
+        sortedShows[prevIndex],
+        sortedShows[currentIndex]
+      );
+
+      if (!isConsecutive) {
+        // End current sequence if it's significant
+        const sequenceLength = i - currentSequenceStart;
+        if (sequenceLength >= 3) {
+          const startIndex = sortedIndexes[currentSequenceStart];
+          const endIndex = sortedIndexes[i - 1];
+          sequences.push({
+            startIndex,
+            endIndex,
+            count: sequenceLength,
+            startDate: this.formatDateForValidation(sortedShows[startIndex].date, sortedShows[startIndex].time),
+            endDate: this.formatDateForValidation(sortedShows[endIndex].date, sortedShows[endIndex].time)
+          });
+        }
+        maxConsecutive = Math.max(maxConsecutive, sequenceLength);
+        currentSequenceStart = i;
+      }
+    }
+
+    // Handle final sequence
+    const finalSequenceLength = sortedIndexes.length - currentSequenceStart;
+    if (finalSequenceLength >= 3) {
+      const startIndex = sortedIndexes[currentSequenceStart];
+      const endIndex = sortedIndexes[sortedIndexes.length - 1];
+      sequences.push({
+        startIndex,
+        endIndex,
+        count: finalSequenceLength,
+        startDate: this.formatDateForValidation(sortedShows[startIndex].date, sortedShows[startIndex].time),
+        endDate: this.formatDateForValidation(sortedShows[endIndex].date, sortedShows[endIndex].time)
+      });
+    }
+    maxConsecutive = Math.max(maxConsecutive, finalSequenceLength);
+
+    data.maxConsecutive = maxConsecutive;
+    data.sequences = sequences;
+  }
+
+  // Optimized check for consecutive shows
+  private areShowsConsecutive(show1: Show, show2: Show): boolean {
+    try {
+      const date1 = new Date(`${show1.date}T${show1.time}`);
+      const date2 = new Date(`${show2.date}T${show2.time}`);
+      const daysDiff = Math.floor((date2.getTime() - date1.getTime()) / (1000 * 60 * 60 * 24));
+      return daysDiff <= 2; // Allow up to 2 days gap
+    } catch (error) {
+      return false;
+    }
+  }
+
   public async autoGenerate(): Promise<AutoGenerateResult> {
     try {
+      // Clear caches when generating new schedule
+      this.clearCaches();
+
       // If no cast members provided, fetch from company system
       if (this.castMembers.length === 0) {
         try {
@@ -208,6 +386,9 @@ export class SchedulingAlgorithm {
   }
 
   private clearAllAssignments(): void {
+    // Clear caches when assignments change
+    this.clearCaches();
+    
     const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
     this.shows.forEach(show => {
       const showAssignment: ShowAssignment = {};
@@ -244,8 +425,8 @@ export class SchedulingAlgorithm {
       score -= 3;
     }
 
-    // Check consecutive shows constraint (only for active shows)
-    const consecutiveCount = this.getConsecutiveShowCount(member.name, showId, activeShows);
+    // Check consecutive shows constraint (only for active shows) - optimized version
+    const consecutiveCount = this.getConsecutiveShowCountOptimized(member.name, showId, activeShows);
     if (consecutiveCount >= 3) {
       score -= 5; // Heavily penalize consecutive shows
     } else if (consecutiveCount >= 2) {
@@ -256,6 +437,31 @@ export class SchedulingAlgorithm {
     score += Math.random() * 0.5;
 
     return score;
+  }
+
+  // Optimized version of consecutive show counting for scoring
+  private getConsecutiveShowCountOptimized(memberName: string, currentShowId: string, activeShows?: Show[]): number {
+    const showsToCheck = activeShows || this.shows.filter(show => show.status === "show");
+    
+    // Find current show index
+    const currentShowIndex = showsToCheck.findIndex(show => show.id === currentShowId);
+    if (currentShowIndex === -1) return 0;
+
+    // Count backwards from current show
+    let consecutiveCount = 0;
+    for (let i = currentShowIndex - 1; i >= 0; i--) {
+      const show = showsToCheck[i];
+      const showAssignment = this.assignments.get(show.id)!;
+      const isAssigned = Object.values(showAssignment).includes(memberName);
+      
+      if (isAssigned) {
+        consecutiveCount++;
+      } else {
+        break;
+      }
+    }
+
+    return consecutiveCount;
   }
 
   private getCurrentShowCount(memberName: string, activeShows?: Show[]): number {
@@ -274,37 +480,6 @@ export class SchedulingAlgorithm {
       }
     }
     return count;
-  }
-
-  private getConsecutiveShowCount(memberName: string, currentShowId: string, activeShows?: Show[]): number {
-    const showsToCheck = activeShows || this.shows.filter(show => show.status === "show");
-    
-    // Sort shows by date and time
-    const sortedShows = [...showsToCheck].sort((a, b) => {
-      const dateCompare = a.date.localeCompare(b.date);
-      if (dateCompare !== 0) return dateCompare;
-      return a.time.localeCompare(b.time);
-    });
-
-    const currentShowIndex = sortedShows.findIndex(show => show.id === currentShowId);
-    if (currentShowIndex === -1) return 0;
-
-    let consecutiveCount = 0;
-    
-    // Check backwards from current show
-    for (let i = currentShowIndex - 1; i >= 0; i--) {
-      const show = sortedShows[i];
-      const showAssignment = this.assignments.get(show.id)!;
-      const isAssigned = Object.values(showAssignment).includes(memberName);
-      
-      if (isAssigned) {
-        consecutiveCount++;
-      } else {
-        break;
-      }
-    }
-
-    return consecutiveCount;
   }
 
   private convertToAssignments(): Assignment[] {
@@ -409,17 +584,16 @@ export class SchedulingAlgorithm {
       }
     }
 
-    // Check consecutive shows constraint with specific suggestions
-    for (const member of this.castMembers) {
-      const consecutiveAnalysis = this.getDetailedConsecutiveAnalysis(member.name, assignments, activeShows);
-      
-      for (const sequence of consecutiveAnalysis.sequences) {
+    // Use optimized consecutive shows analysis
+    const performerData = this.analyzeConsecutiveShows(assignments);
+    for (const [memberName, data] of performerData) {
+      for (const sequence of data.sequences) {
         if (sequence.count >= 6) {
-          const suggestions = this.getConsecutiveShowSuggestions(member.name, sequence, assignments, activeShows);
-          errors.push(`${member.name} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - critical burnout risk. ${suggestions}`);
+          const suggestions = this.getConsecutiveShowSuggestions(memberName, sequence, assignments, activeShows);
+          errors.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - critical burnout risk. ${suggestions}`);
         } else if (sequence.count >= 4) {
-          const suggestions = this.getConsecutiveShowSuggestions(member.name, sequence, assignments, activeShows);
-          warnings.push(`${member.name} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - consider reducing workload. ${suggestions}`);
+          const suggestions = this.getConsecutiveShowSuggestions(memberName, sequence, assignments, activeShows);
+          warnings.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - consider reducing workload. ${suggestions}`);
         }
       }
     }
@@ -484,100 +658,18 @@ export class SchedulingAlgorithm {
     return [...new Set(alternatives)]; // Remove duplicates
   }
 
-  private getDetailedConsecutiveAnalysis(memberName: string, assignments: Assignment[], activeShows: Show[]) {
-    // Build a set of show dates where this member is assigned
-    const memberShowDates = new Set<string>();
-    assignments.forEach(assignment => {
-      if (assignment.performer === memberName) {
-        const show = activeShows.find(s => s.id === assignment.showId);
-        if (show) {
-          memberShowDates.add(`${show.date}T${show.time}`);
-        }
-      }
-    });
-
-    // Get all unique show dates, sorted chronologically
-    const allShowDateTimes = activeShows
-      .map(show => ({
-        dateTime: `${show.date}T${show.time}`,
-        date: show.date,
-        time: show.time,
-        id: show.id
-      }))
-      .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
-
-    const sequences: Array<{
-      startDate: string;
-      endDate: string;
-      count: number;
-      showIds: string[];
-    }> = [];
-
-    let currentSequence: { startDate: string; endDate: string; count: number; showIds: string[] } | null = null;
-    let lastShowDate: Date | null = null;
-
-    for (const show of allShowDateTimes) {
-      const isAssigned = memberShowDates.has(show.dateTime);
-      
-      if (isAssigned) {
-        const currentShowDate = new Date(show.dateTime);
-        
-        if (lastShowDate) {
-          const daysDiff = Math.floor((currentShowDate.getTime() - lastShowDate.getTime()) / (1000 * 60 * 60 * 24));
-          
-          if (daysDiff <= 2) {
-            if (currentSequence) {
-              currentSequence.count++;
-              currentSequence.endDate = this.formatDateForValidation(show.date, show.time);
-              currentSequence.showIds.push(show.id);
-            } else {
-              const prevShowIndex = allShowDateTimes.findIndex(s => s.dateTime === show.dateTime) - 1;
-              const prevShow = allShowDateTimes[prevShowIndex];
-              currentSequence = {
-                startDate: this.formatDateForValidation(prevShow?.date || show.date, prevShow?.time || show.time),
-                endDate: this.formatDateForValidation(show.date, show.time),
-                count: 2,
-                showIds: [prevShow?.id || show.id, show.id]
-              };
-            }
-          } else {
-            if (currentSequence && currentSequence.count >= 3) {
-              sequences.push({ ...currentSequence });
-            }
-            currentSequence = null;
-          }
-        }
-        
-        lastShowDate = currentShowDate;
-      } else {
-        if (currentSequence && currentSequence.count >= 3) {
-          sequences.push({ ...currentSequence });
-        }
-        currentSequence = null;
-        lastShowDate = null;
-      }
-    }
-
-    if (currentSequence && currentSequence.count >= 3) {
-      sequences.push({ ...currentSequence });
-    }
-
-    return { sequences };
-  }
-
-  private getConsecutiveShowSuggestions(memberName: string, sequence: any, assignments: Assignment[], activeShows: Show[]): string {
+  private getConsecutiveShowSuggestions(memberName: string, sequence: ConsecutiveSequence, assignments: Assignment[], activeShows: Show[]): string {
     const suggestions: string[] = [];
     
     // Find shows in the middle of the sequence where we could make substitutions
     const memberAssignments = assignments.filter(a => a.performer === memberName);
-    const sequenceShows = activeShows.filter(show => 
-      sequence.showIds && sequence.showIds.includes(show.id)
-    );
+    const showIndexMap = this.getShowIndexMap();
+    const sortedShows = this.getSortedActiveShows();
     
-    if (sequenceShows.length >= 3) {
-      // Suggest replacing in the middle of the sequence
-      const middleShowIndex = Math.floor(sequenceShows.length / 2);
-      const middleShow = sequenceShows[middleShowIndex];
+    // Get middle show index from the sequence
+    const middleIndex = Math.floor((sequence.startIndex + sequence.endIndex) / 2);
+    if (middleIndex < sortedShows.length) {
+      const middleShow = sortedShows[middleIndex];
       const memberRoleInShow = memberAssignments.find(a => a.showId === middleShow.id)?.role;
       
       if (memberRoleInShow) {
@@ -655,79 +747,6 @@ export class SchedulingAlgorithm {
     }
     
     return suggestions.join(", ");
-  }
-
-  private getMaxConsecutiveShows(memberName: string, assignments: Assignment[], activeShows?: Show[]): number {
-    const showsToCheck = activeShows || this.shows.filter(show => show.status === "show");
-    
-    // Build a set of show dates where this member is assigned
-    const memberShowDates = new Set<string>();
-    assignments.forEach(assignment => {
-      if (assignment.performer === memberName) {
-        const show = showsToCheck.find(s => s.id === assignment.showId);
-        if (show) {
-          // Create unique date-time identifier for each show
-          memberShowDates.add(`${show.date}T${show.time}`);
-        }
-      }
-    });
-
-    if (memberShowDates.size === 0) return 0;
-
-    // Get all unique show dates from all shows, sorted chronologically
-    const allShowDateTimes = showsToCheck
-      .map(show => ({
-        dateTime: `${show.date}T${show.time}`,
-        date: show.date,
-        time: show.time
-      }))
-      .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
-
-    // Remove duplicates while preserving order
-    const uniqueShowDateTimes = [];
-    const seen = new Set<string>();
-    for (const show of allShowDateTimes) {
-      if (!seen.has(show.dateTime)) {
-        seen.add(show.dateTime);
-        uniqueShowDateTimes.push(show.dateTime);
-      }
-    }
-
-    let maxConsecutive = 0;
-    let currentConsecutive = 0;
-    let lastShowDate: Date | null = null;
-
-    for (const dateTime of uniqueShowDateTimes) {
-      const isAssigned = memberShowDates.has(dateTime);
-      
-      if (isAssigned) {
-        const currentShowDate = new Date(dateTime);
-        
-        // Check if this is consecutive to the last show
-        if (lastShowDate) {
-          const daysDiff = Math.floor((currentShowDate.getTime() - lastShowDate.getTime()) / (1000 * 60 * 60 * 24));
-          
-          // Consider consecutive if within 2 days (allows for some flexibility)
-          if (daysDiff <= 2) {
-            currentConsecutive++;
-          } else {
-            // Reset consecutive count for gaps > 2 days
-            currentConsecutive = 1;
-          }
-        } else {
-          currentConsecutive = 1;
-        }
-        
-        maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
-        lastShowDate = currentShowDate;
-      } else {
-        // Reset consecutive count when performer is not assigned
-        currentConsecutive = 0;
-        lastShowDate = null;
-      }
-    }
-
-    return maxConsecutive;
   }
 
   private getShowCounts(assignments: Assignment[], activeShows?: Show[]): Record<string, number> {
