@@ -84,12 +84,6 @@ export default function ScheduleList() {
           <h1 className="text-3xl font-bold text-gray-900">Performance Schedules</h1>
           <p className="text-gray-600">Manage your STOMP theater performance schedules</p>
         </div>
-        <Button asChild>
-          <Link to="/schedule/new" className="flex items-center space-x-2">
-            <Plus className="h-4 w-4" />
-            <span>New Schedule</span>
-          </Link>
-        </Button>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
