@@ -1,6 +1,21 @@
 export function formatDate(dateString: string): string {
   try {
+    // Handle Date objects
+    if (dateString instanceof Date) {
+      return dateString.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short', 
+        day: 'numeric'
+      });
+    }
+
     const date = new Date(dateString);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return dateString;
+    }
+
     // Handle ISO date strings by adding timezone if needed
     if (dateString.includes('T')) {
       return date.toLocaleDateString('en-US', {

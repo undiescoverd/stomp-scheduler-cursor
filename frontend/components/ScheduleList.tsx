@@ -124,7 +124,7 @@ export default function ScheduleList() {
                 </div>
 
                 <div className="text-xs text-gray-500">
-                  Created {formatDate(schedule.createdAt.toString())}
+                  Created {formatDate(schedule.createdAt instanceof Date ? schedule.createdAt.toISOString() : schedule.createdAt)}
                 </div>
 
                 <div className="flex space-x-2 pt-2">
