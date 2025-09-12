@@ -84,6 +84,13 @@ export interface ClientOptions {
  */
 import { autoGenerate as api_scheduler_auto_generate_autoGenerate } from "~backend/scheduler/auto_generate";
 import { getCastMembers as api_scheduler_cast_members_getCastMembers } from "~backend/scheduler/cast_members";
+import {
+    addMember as api_scheduler_company_addMember,
+    deleteMember as api_scheduler_company_deleteMember,
+    getCompany as api_scheduler_company_getCompany,
+    reorderMembers as api_scheduler_company_reorderMembers,
+    updateMember as api_scheduler_company_updateMember
+} from "~backend/scheduler/company";
 import { create as api_scheduler_create_create } from "~backend/scheduler/create";
 import { deleteSchedule as api_scheduler_delete_deleteSchedule } from "~backend/scheduler/delete";
 import { get as api_scheduler_get_get } from "~backend/scheduler/get";
@@ -98,14 +105,28 @@ export namespace scheduler {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.addMember = this.addMember.bind(this)
             this.autoGenerate = this.autoGenerate.bind(this)
             this.create = this.create.bind(this)
+            this.deleteMember = this.deleteMember.bind(this)
             this.deleteSchedule = this.deleteSchedule.bind(this)
             this.get = this.get.bind(this)
             this.getCastMembers = this.getCastMembers.bind(this)
+            this.getCompany = this.getCompany.bind(this)
             this.list = this.list.bind(this)
+            this.reorderMembers = this.reorderMembers.bind(this)
             this.update = this.update.bind(this)
+            this.updateMember = this.updateMember.bind(this)
             this.validate = this.validate.bind(this)
+        }
+
+        /**
+         * Adds a new cast member to the company.
+         */
+        public async addMember(params: RequestType<typeof api_scheduler_company_addMember>): Promise<ResponseType<typeof api_scheduler_company_addMember>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/company/members`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_company_addMember>
         }
 
         /**
@@ -127,6 +148,13 @@ export namespace scheduler {
         }
 
         /**
+         * Deletes a cast member permanently.
+         */
+        public async deleteMember(params: { id: string }): Promise<void> {
+            await this.baseClient.callTypedAPI(`/company/members/${encodeURIComponent(params.id)}`, {method: "DELETE", body: undefined})
+        }
+
+        /**
          * Deletes a schedule.
          */
         public async deleteSchedule(params: { id: string }): Promise<void> {
@@ -143,12 +171,21 @@ export namespace scheduler {
         }
 
         /**
-         * Retrieves all cast members and their role eligibility.
+         * Retrieves all cast members and their role eligibility from the company management system.
          */
         public async getCastMembers(): Promise<ResponseType<typeof api_scheduler_cast_members_getCastMembers>> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/cast-members`, {method: "GET", body: undefined})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_cast_members_getCastMembers>
+        }
+
+        /**
+         * Retrieves the current company and archive.
+         */
+        public async getCompany(): Promise<ResponseType<typeof api_scheduler_company_getCompany>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/company`, {method: "GET", body: undefined})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_company_getCompany>
         }
 
         /**
@@ -158,6 +195,13 @@ export namespace scheduler {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/schedules`, {method: "GET", body: undefined})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_list_list>
+        }
+
+        /**
+         * Reorders the current company members.
+         */
+        public async reorderMembers(params: RequestType<typeof api_scheduler_company_reorderMembers>): Promise<void> {
+            await this.baseClient.callTypedAPI(`/company/reorder`, {method: "PUT", body: JSON.stringify(params)})
         }
 
         /**
@@ -175,6 +219,25 @@ export namespace scheduler {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/schedules/${encodeURIComponent(params.id)}`, {method: "PUT", body: JSON.stringify(body)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_update_update>
+        }
+
+        /**
+         * Updates an existing cast member.
+         */
+        public async updateMember(params: RequestType<typeof api_scheduler_company_updateMember>): Promise<ResponseType<typeof api_scheduler_company_updateMember>> {
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                archiveCategory: params.archiveCategory,
+                archiveReason:   params.archiveReason,
+                eligibleRoles:   params.eligibleRoles,
+                name:            params.name,
+                order:           params.order,
+                status:          params.status,
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/company/members/${encodeURIComponent(params.id)}`, {method: "PUT", body: JSON.stringify(body)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_company_updateMember>
         }
 
         /**

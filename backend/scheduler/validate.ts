@@ -17,7 +17,11 @@ export interface ValidateScheduleResponse {
 export const validate = api<ValidateScheduleRequest, ValidateScheduleResponse>(
   { expose: true, method: "POST", path: "/schedules/validate" },
   async (req) => {
-    const algorithm = new SchedulingAlgorithm(req.shows);
+    // Get current cast members from company system
+    const { getCastMembers } = await import("./cast_members");
+    const castData = await getCastMembers();
+    
+    const algorithm = new SchedulingAlgorithm(req.shows, castData.castMembers);
     const result = algorithm.validateSchedule(req.assignments);
     
     return {

@@ -1,43 +1,61 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Calendar, Home, Plus } from 'lucide-react';
+import { Calendar, Home, Plus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CompanyManagement } from './CompanyManagement';
 
 export function AppHeader() {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
+  const [showCompanyManagement, setShowCompanyManagement] = useState(false);
 
   return (
-    <header className="bg-white border-b border-gray-200 shadow-sm">
-      <div className="container mx-auto px-4 py-4">
-        <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center space-x-2">
-            <Calendar className="h-8 w-8 text-blue-600" />
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">STOMP Scheduler</h1>
-              <p className="text-sm text-gray-600">Performance Cast Management</p>
-            </div>
-          </Link>
-          
-          <div className="flex items-center space-x-4">
-            {!isHomePage && (
-              <Button variant="outline" asChild>
-                <Link to="/" className="flex items-center space-x-2">
-                  <Home className="h-4 w-4" />
-                  <span>Home</span>
+    <>
+      <header className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <Link to="/" className="flex items-center space-x-2">
+              <Calendar className="h-8 w-8 text-blue-600" />
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">STOMP Scheduler</h1>
+                <p className="text-sm text-gray-600">Performance Cast Management</p>
+              </div>
+            </Link>
+            
+            <div className="flex items-center space-x-4">
+              {!isHomePage && (
+                <Button variant="outline" asChild>
+                  <Link to="/" className="flex items-center space-x-2">
+                    <Home className="h-4 w-4" />
+                    <span>Home</span>
+                  </Link>
+                </Button>
+              )}
+              
+              <Button 
+                variant="outline" 
+                onClick={() => setShowCompanyManagement(true)}
+                className="flex items-center space-x-2"
+              >
+                <Users className="h-4 w-4" />
+                <span>Manage Company</span>
+              </Button>
+              
+              <Button asChild>
+                <Link to="/schedule/new" className="flex items-center space-x-2">
+                  <Plus className="h-4 w-4" />
+                  <span>New Schedule</span>
                 </Link>
               </Button>
-            )}
-            
-            <Button asChild>
-              <Link to="/schedule/new" className="flex items-center space-x-2">
-                <Plus className="h-4 w-4" />
-                <span>New Schedule</span>
-              </Link>
-            </Button>
+            </div>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      <CompanyManagement
+        isOpen={showCompanyManagement}
+        onClose={() => setShowCompanyManagement(false)}
+      />
+    </>
   );
 }

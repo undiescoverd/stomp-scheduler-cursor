@@ -16,8 +16,12 @@ export interface AutoGenerateResponse {
 export const autoGenerate = api<AutoGenerateRequest, AutoGenerateResponse>(
   { expose: true, method: "POST", path: "/schedules/auto-generate" },
   async (req) => {
-    const algorithm = new SchedulingAlgorithm(req.shows);
-    const result = algorithm.autoGenerate();
+    // Get current cast members from company system
+    const { getCastMembers } = await import("./cast_members");
+    const castData = await getCastMembers();
+    
+    const algorithm = new SchedulingAlgorithm(req.shows, castData.castMembers);
+    const result = await algorithm.autoGenerate();
     
     return {
       success: result.success,

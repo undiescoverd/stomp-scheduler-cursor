@@ -1,4 +1,4 @@
-import { CAST_MEMBERS, ROLES, Role, Show, Assignment, CastMember } from "./types";
+import { Role, Show, Assignment, CastMember } from "./types";
 
 export interface AutoGenerateResult {
   success: boolean;
@@ -19,23 +19,43 @@ interface ShowAssignment {
 export class SchedulingAlgorithm {
   private shows: Show[];
   private assignments: Map<string, ShowAssignment>;
+  private castMembers: CastMember[];
 
-  constructor(shows: Show[]) {
+  constructor(shows: Show[], castMembers?: CastMember[]) {
     this.shows = shows;
     this.assignments = new Map();
+    
+    // Use provided cast members or fetch from company system
+    this.castMembers = castMembers || [];
     
     // Initialize empty assignments for all shows
     shows.forEach(show => {
       const showAssignment: ShowAssignment = {};
-      ROLES.forEach(role => {
+      const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
+      roles.forEach(role => {
         showAssignment[role] = "";
       });
       this.assignments.set(show.id, showAssignment);
     });
   }
 
-  public autoGenerate(): AutoGenerateResult {
+  public async autoGenerate(): Promise<AutoGenerateResult> {
     try {
+      // If no cast members provided, fetch from company system
+      if (this.castMembers.length === 0) {
+        try {
+          const { getCastMembers } = await import("./cast_members");
+          const castData = await getCastMembers();
+          this.castMembers = castData.castMembers;
+        } catch (error) {
+          return {
+            success: false,
+            assignments: [],
+            errors: ["Failed to load cast members from company system"]
+          };
+        }
+      }
+
       // Clear existing assignments
       this.clearAllAssignments();
 
@@ -90,8 +110,9 @@ export class SchedulingAlgorithm {
 
   private assignRolesForShow(showId: string): boolean {
     const showAssignment = this.assignments.get(showId)!;
-    const availablePerformers = [...CAST_MEMBERS];
-    const unassignedRoles = [...ROLES];
+    const availablePerformers = [...this.castMembers];
+    const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
+    const unassignedRoles = [...roles];
 
     // Shuffle roles to add randomness
     this.shuffleArray(unassignedRoles);
@@ -137,12 +158,13 @@ export class SchedulingAlgorithm {
 
   private generatePartialSchedule(activeShows: Show[]): AutoGenerateResult {
     const errors: string[] = [];
+    const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
     
     // Get roles sorted by difficulty (fewest eligible performers first)
     const rolesByDifficulty = this.getRolesByDifficulty();
 
     for (const role of rolesByDifficulty) {
-      const eligibleCast = CAST_MEMBERS.filter(member => member.eligibleRoles.includes(role));
+      const eligibleCast = this.castMembers.filter(member => member.eligibleRoles.includes(role));
       
       for (const show of activeShows) {
         const showAssignment = this.assignments.get(show.id)!;
@@ -186,9 +208,10 @@ export class SchedulingAlgorithm {
   }
 
   private clearAllAssignments(): void {
+    const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
     this.shows.forEach(show => {
       const showAssignment: ShowAssignment = {};
-      ROLES.forEach(role => {
+      roles.forEach(role => {
         showAssignment[role] = "";
       });
       this.assignments.set(show.id, showAssignment);
@@ -196,9 +219,10 @@ export class SchedulingAlgorithm {
   }
 
   private getRolesByDifficulty(): Role[] {
-    return [...ROLES].sort((a, b) => {
-      const aEligible = CAST_MEMBERS.filter(member => member.eligibleRoles.includes(a)).length;
-      const bEligible = CAST_MEMBERS.filter(member => member.eligibleRoles.includes(b)).length;
+    const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
+    return [...roles].sort((a, b) => {
+      const aEligible = this.castMembers.filter(member => member.eligibleRoles.includes(a)).length;
+      const bEligible = this.castMembers.filter(member => member.eligibleRoles.includes(b)).length;
       return aEligible - bEligible;
     });
   }
@@ -211,7 +235,7 @@ export class SchedulingAlgorithm {
 
     // Get current show count for this member across active shows only
     const currentShowCount = this.getCurrentShowCount(member.name, activeShows);
-    const targetShowCount = Math.floor(activeShows.length * ROLES.length / CAST_MEMBERS.length);
+    const targetShowCount = Math.floor(activeShows.length * 8 / this.castMembers.length);
 
     // Prefer members with fewer shows (load balancing)
     if (currentShowCount < targetShowCount) {
@@ -341,7 +365,7 @@ export class SchedulingAlgorithm {
 
       // Check role eligibility
       for (const assignment of showAssignmentList) {
-        const castMember = CAST_MEMBERS.find(m => m.name === assignment.performer);
+        const castMember = this.castMembers.find(m => m.name === assignment.performer);
         if (!castMember || !castMember.eligibleRoles.includes(assignment.role)) {
           errors.push(`Show ${show.date} ${show.time}: ${assignment.performer} is not eligible for role ${assignment.role}`);
         }
@@ -361,7 +385,7 @@ export class SchedulingAlgorithm {
     }
 
     // Check consecutive shows constraint (only for active shows)
-    for (const member of CAST_MEMBERS) {
+    for (const member of this.castMembers) {
       const consecutiveCount = this.getMaxConsecutiveShows(member.name, assignments, activeShows);
       if (consecutiveCount >= 4) {
         if (consecutiveCount >= 6) {
@@ -467,7 +491,7 @@ export class SchedulingAlgorithm {
     const counts: Record<string, number> = {};
     
     // Initialize all cast members
-    CAST_MEMBERS.forEach(member => {
+    this.castMembers.forEach(member => {
       counts[member.name] = 0;
     });
 

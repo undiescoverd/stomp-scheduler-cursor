@@ -6,13 +6,33 @@ export interface GetCastMembersResponse {
   roles: Role[];
 }
 
-// Retrieves all cast members and their role eligibility.
+// Retrieves all cast members and their role eligibility from the company management system.
 export const getCastMembers = api<void, GetCastMembersResponse>(
   { expose: true, method: "GET", path: "/cast-members" },
   async () => {
-    return {
-      castMembers: CAST_MEMBERS,
-      roles: ROLES
-    };
+    // Import the company module dynamically to avoid circular dependencies
+    const { getCompany } = await import("./company");
+    
+    try {
+      // Get active company members
+      const companyData = await getCompany();
+      
+      // Convert company members to legacy CastMember format
+      const castMembers: CastMember[] = companyData.currentCompany.map(member => ({
+        name: member.name,
+        eligibleRoles: member.eligibleRoles
+      }));
+      
+      return {
+        castMembers: castMembers.length > 0 ? castMembers : CAST_MEMBERS,
+        roles: ROLES
+      };
+    } catch (error) {
+      // Fallback to default cast members if company system fails
+      return {
+        castMembers: CAST_MEMBERS,
+        roles: ROLES
+      };
+    }
   }
 );
