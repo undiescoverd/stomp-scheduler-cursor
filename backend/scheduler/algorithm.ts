@@ -344,14 +344,16 @@ export class SchedulingAlgorithm {
     // Validate each active show
     for (const show of activeShows) {
       const showAssignmentList = showAssignments.get(show.id) || [];
+      const showDate = this.formatDateForValidation(show.date, show.time);
       
       // Check if exactly 8 performers per show
       const uniquePerformers = new Set(showAssignmentList.map(a => a.performer));
       if (uniquePerformers.size !== 8 && showAssignmentList.length > 0) {
         if (uniquePerformers.size < 8) {
-          warnings.push(`Show ${show.date} ${show.time}: Has ${uniquePerformers.size} performers, needs 8`);
+          const missingCount = 8 - uniquePerformers.size;
+          warnings.push(`Show ${showDate}: Missing ${missingCount} performer${missingCount > 1 ? 's' : ''} - assign additional cast members to reach full capacity`);
         } else {
-          errors.push(`Show ${show.date} ${show.time}: Has ${uniquePerformers.size} performers, must have exactly 8`);
+          errors.push(`Show ${showDate}: Has ${uniquePerformers.size} performers but can only have 8 - remove duplicate assignments`);
         }
       }
 
@@ -359,50 +361,80 @@ export class SchedulingAlgorithm {
       const filledRoles = new Set(showAssignmentList.map(a => a.role));
       if (filledRoles.size !== 8 && showAssignmentList.length > 0) {
         if (filledRoles.size < 8) {
-          warnings.push(`Show ${show.date} ${show.time}: Has ${filledRoles.size} roles filled, needs 8`);
+          const missingRoles = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"]
+            .filter(role => !filledRoles.has(role as Role));
+          warnings.push(`Show ${showDate}: Missing roles: ${missingRoles.join(", ")} - assign performers to these roles`);
         }
       }
 
-      // Check role eligibility
+      // Check role eligibility with specific suggestions
       for (const assignment of showAssignmentList) {
         const castMember = this.castMembers.find(m => m.name === assignment.performer);
-        if (!castMember || !castMember.eligibleRoles.includes(assignment.role)) {
-          errors.push(`Show ${show.date} ${show.time}: ${assignment.performer} is not eligible for role ${assignment.role}`);
+        if (!castMember) {
+          errors.push(`Show ${showDate}: Unknown performer "${assignment.performer}" assigned to ${assignment.role} - verify performer name or add to cast list`);
+        } else if (!castMember.eligibleRoles.includes(assignment.role)) {
+          const eligiblePerformers = this.castMembers
+            .filter(m => m.eligibleRoles.includes(assignment.role))
+            .map(m => m.name);
+          
+          if (eligiblePerformers.length > 0) {
+            errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - replace with eligible performer: ${eligiblePerformers.slice(0, 3).join(", ")}${eligiblePerformers.length > 3 ? ` or ${eligiblePerformers.length - 3} others` : ""}`);
+          } else {
+            errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - no eligible performers found for this role`);
+          }
         }
       }
 
-      // Check for duplicate performers in same show
-      const performerCounts = new Map<string, number>();
+      // Check for duplicate performers in same show with specific suggestions
+      const performerCounts = new Map<string, Assignment[]>();
       showAssignmentList.forEach(assignment => {
-        performerCounts.set(assignment.performer, (performerCounts.get(assignment.performer) || 0) + 1);
+        if (!performerCounts.has(assignment.performer)) {
+          performerCounts.set(assignment.performer, []);
+        }
+        performerCounts.get(assignment.performer)!.push(assignment);
       });
       
-      for (const [performer, count] of performerCounts) {
-        if (count > 1) {
-          errors.push(`Show ${show.date} ${show.time}: ${performer} is assigned multiple roles in the same show`);
+      for (const [performer, assignments] of performerCounts) {
+        if (assignments.length > 1) {
+          const roles = assignments.map(a => a.role);
+          const otherEligiblePerformers = this.getAlternativePerformers(performer, roles, show.id);
+          
+          let suggestion = `reassign one of these roles to another performer`;
+          if (otherEligiblePerformers.length > 0) {
+            suggestion = `consider reassigning ${roles[1]} to ${otherEligiblePerformers.slice(0, 2).join(" or ")}`;
+          }
+          
+          errors.push(`Show ${showDate}: ${performer} assigned to multiple roles (${roles.join(", ")}) - ${suggestion}`);
         }
       }
     }
 
-    // Check consecutive shows constraint (only for active shows)
+    // Check consecutive shows constraint with specific suggestions
     for (const member of this.castMembers) {
-      const consecutiveCount = this.getMaxConsecutiveShows(member.name, assignments, activeShows);
-      if (consecutiveCount >= 4) {
-        if (consecutiveCount >= 6) {
-          errors.push(`${member.name} has ${consecutiveCount} consecutive shows (critical burnout risk)`);
-        } else {
-          warnings.push(`${member.name} has ${consecutiveCount} consecutive shows (burnout warning)`);
+      const consecutiveAnalysis = this.getDetailedConsecutiveAnalysis(member.name, assignments, activeShows);
+      
+      for (const sequence of consecutiveAnalysis.sequences) {
+        if (sequence.count >= 6) {
+          const suggestions = this.getConsecutiveShowSuggestions(member.name, sequence, assignments, activeShows);
+          errors.push(`${member.name} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - critical burnout risk. ${suggestions}`);
+        } else if (sequence.count >= 4) {
+          const suggestions = this.getConsecutiveShowSuggestions(member.name, sequence, assignments, activeShows);
+          warnings.push(`${member.name} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - consider reducing workload. ${suggestions}`);
         }
       }
     }
 
-    // Check show distribution (only for active shows)
+    // Check show distribution with specific suggestions
     const showCounts = this.getShowCounts(assignments, activeShows);
+    const averageShows = activeShows.length > 0 ? activeShows.length / this.castMembers.length : 0;
+    
     for (const [performer, count] of Object.entries(showCounts)) {
-      if (count < 2 && count > 0) {
-        warnings.push(`${performer} only has ${count} shows (underutilized)`);
-      } else if (count > Math.ceil(activeShows.length * 0.8)) {
-        warnings.push(`${performer} has ${count} shows (potentially overworked)`);
+      if (count < 2 && count > 0 && activeShows.length >= 4) {
+        const underutilizedSuggestions = this.getUnderutilizedSuggestions(performer, assignments, activeShows);
+        warnings.push(`${performer} only has ${count} show${count === 1 ? '' : 's'} (underutilized) - ${underutilizedSuggestions}`);
+      } else if (count > Math.ceil(averageShows * 1.5) && activeShows.length > 4) {
+        const overworkedSuggestions = this.getOverworkedSuggestions(performer, assignments, activeShows);
+        warnings.push(`${performer} has ${count} shows (potentially overworked) - ${overworkedSuggestions}`);
       }
     }
 
@@ -411,6 +443,218 @@ export class SchedulingAlgorithm {
       errors,
       warnings
     };
+  }
+
+  private formatDateForValidation(date: string, time: string): string {
+    try {
+      const dateObj = new Date(date);
+      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+      const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const [hours, minutes] = time.split(':');
+      const timeObj = new Date();
+      timeObj.setHours(parseInt(hours), parseInt(minutes));
+      const timeStr = timeObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      
+      return `${dayName} ${monthDay} ${timeStr}`;
+    } catch (error) {
+      return `${date} ${time}`;
+    }
+  }
+
+  private getAlternativePerformers(currentPerformer: string, roles: Role[], showId: string): string[] {
+    const alternatives: string[] = [];
+    
+    // Get currently assigned performers in this show
+    const showAssignments = this.convertToAssignments().filter(a => a.showId === showId);
+    const assignedPerformers = new Set(showAssignments.map(a => a.performer));
+    
+    // Find alternative performers for each role (excluding current performer and already assigned)
+    for (const role of roles) {
+      const eligiblePerformers = this.castMembers
+        .filter(member => 
+          member.eligibleRoles.includes(role) && 
+          member.name !== currentPerformer &&
+          !assignedPerformers.has(member.name)
+        )
+        .map(member => member.name);
+      
+      alternatives.push(...eligiblePerformers);
+    }
+    
+    return [...new Set(alternatives)]; // Remove duplicates
+  }
+
+  private getDetailedConsecutiveAnalysis(memberName: string, assignments: Assignment[], activeShows: Show[]) {
+    // Build a set of show dates where this member is assigned
+    const memberShowDates = new Set<string>();
+    assignments.forEach(assignment => {
+      if (assignment.performer === memberName) {
+        const show = activeShows.find(s => s.id === assignment.showId);
+        if (show) {
+          memberShowDates.add(`${show.date}T${show.time}`);
+        }
+      }
+    });
+
+    // Get all unique show dates, sorted chronologically
+    const allShowDateTimes = activeShows
+      .map(show => ({
+        dateTime: `${show.date}T${show.time}`,
+        date: show.date,
+        time: show.time,
+        id: show.id
+      }))
+      .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
+
+    const sequences: Array<{
+      startDate: string;
+      endDate: string;
+      count: number;
+      showIds: string[];
+    }> = [];
+
+    let currentSequence: { startDate: string; endDate: string; count: number; showIds: string[] } | null = null;
+    let lastShowDate: Date | null = null;
+
+    for (const show of allShowDateTimes) {
+      const isAssigned = memberShowDates.has(show.dateTime);
+      
+      if (isAssigned) {
+        const currentShowDate = new Date(show.dateTime);
+        
+        if (lastShowDate) {
+          const daysDiff = Math.floor((currentShowDate.getTime() - lastShowDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (daysDiff <= 2) {
+            if (currentSequence) {
+              currentSequence.count++;
+              currentSequence.endDate = this.formatDateForValidation(show.date, show.time);
+              currentSequence.showIds.push(show.id);
+            } else {
+              const prevShowIndex = allShowDateTimes.findIndex(s => s.dateTime === show.dateTime) - 1;
+              const prevShow = allShowDateTimes[prevShowIndex];
+              currentSequence = {
+                startDate: this.formatDateForValidation(prevShow?.date || show.date, prevShow?.time || show.time),
+                endDate: this.formatDateForValidation(show.date, show.time),
+                count: 2,
+                showIds: [prevShow?.id || show.id, show.id]
+              };
+            }
+          } else {
+            if (currentSequence && currentSequence.count >= 3) {
+              sequences.push({ ...currentSequence });
+            }
+            currentSequence = null;
+          }
+        }
+        
+        lastShowDate = currentShowDate;
+      } else {
+        if (currentSequence && currentSequence.count >= 3) {
+          sequences.push({ ...currentSequence });
+        }
+        currentSequence = null;
+        lastShowDate = null;
+      }
+    }
+
+    if (currentSequence && currentSequence.count >= 3) {
+      sequences.push({ ...currentSequence });
+    }
+
+    return { sequences };
+  }
+
+  private getConsecutiveShowSuggestions(memberName: string, sequence: any, assignments: Assignment[], activeShows: Show[]): string {
+    const suggestions: string[] = [];
+    
+    // Find shows in the middle of the sequence where we could make substitutions
+    const memberAssignments = assignments.filter(a => a.performer === memberName);
+    const sequenceShows = activeShows.filter(show => 
+      sequence.showIds && sequence.showIds.includes(show.id)
+    );
+    
+    if (sequenceShows.length >= 3) {
+      // Suggest replacing in the middle of the sequence
+      const middleShowIndex = Math.floor(sequenceShows.length / 2);
+      const middleShow = sequenceShows[middleShowIndex];
+      const memberRoleInShow = memberAssignments.find(a => a.showId === middleShow.id)?.role;
+      
+      if (memberRoleInShow) {
+        const alternatives = this.getAlternativePerformers(memberName, [memberRoleInShow], middleShow.id);
+        if (alternatives.length > 0) {
+          const showDate = this.formatDateForValidation(middleShow.date, middleShow.time);
+          suggestions.push(`Replace ${memberName} with ${alternatives[0]} for ${memberRoleInShow} on ${showDate}`);
+        }
+      }
+    }
+    
+    // If no specific suggestions, give general advice
+    if (suggestions.length === 0) {
+      suggestions.push("Consider redistributing some shows to other cast members");
+    }
+    
+    return suggestions.join(". ");
+  }
+
+  private getUnderutilizedSuggestions(performer: string, assignments: Assignment[], activeShows: Show[]): string {
+    const suggestions: string[] = [];
+    
+    // Find shows where this performer is not assigned but could be
+    const performerMember = this.castMembers.find(m => m.name === performer);
+    if (!performerMember) return "verify performer availability";
+    
+    const assignedShowIds = new Set(assignments.filter(a => a.performer === performer).map(a => a.showId));
+    const unassignedShows = activeShows.filter(show => !assignedShowIds.has(show.id));
+    
+    if (unassignedShows.length > 0) {
+      // Look for roles this performer could fill in unassigned shows
+      for (const show of unassignedShows.slice(0, 2)) { // Check first 2 shows
+        const showAssignments = assignments.filter(a => a.showId === show.id);
+        const unfilledRoles = performerMember.eligibleRoles.filter(role => 
+          !showAssignments.some(a => a.role === role)
+        );
+        
+        if (unfilledRoles.length > 0) {
+          const showDate = this.formatDateForValidation(show.date, show.time);
+          suggestions.push(`assign ${unfilledRoles[0]} role on ${showDate}`);
+          break;
+        }
+      }
+    }
+    
+    if (suggestions.length === 0) {
+      suggestions.push("look for opportunities to assign additional roles");
+    }
+    
+    return suggestions.join(", ");
+  }
+
+  private getOverworkedSuggestions(performer: string, assignments: Assignment[], activeShows: Show[]): string {
+    const suggestions: string[] = [];
+    
+    // Find this performer's assignments and suggest redistributing some
+    const performerAssignments = assignments.filter(a => a.performer === performer);
+    
+    if (performerAssignments.length > 2) {
+      // Suggest redistributing the last few assignments
+      const lastAssignment = performerAssignments[performerAssignments.length - 1];
+      const show = activeShows.find(s => s.id === lastAssignment.showId);
+      
+      if (show) {
+        const alternatives = this.getAlternativePerformers(performer, [lastAssignment.role], show.id);
+        if (alternatives.length > 0) {
+          const showDate = this.formatDateForValidation(show.date, show.time);
+          suggestions.push(`reassign ${lastAssignment.role} on ${showDate} to ${alternatives[0]}`);
+        }
+      }
+    }
+    
+    if (suggestions.length === 0) {
+      suggestions.push("redistribute some assignments to other cast members");
+    }
+    
+    return suggestions.join(", ");
   }
 
   private getMaxConsecutiveShows(memberName: string, assignments: Assignment[], activeShows?: Show[]): number {
