@@ -237,14 +237,11 @@ export class SchedulingAlgorithm {
       // Clear existing assignments
       this.clearAllAssignments();
 
-      // Filter out travel/day-off shows for scheduling
-      const activeShows = this.shows.filter(show => show.status === "show");
-
       // Try multiple approaches to find a valid assignment
       for (let attempt = 0; attempt < 10; attempt++) {
         this.clearAllAssignments();
         
-        if (this.generateScheduleAttempt(activeShows)) {
+        if (this.generateScheduleAttempt()) {
           const assignments = this.convertToAssignments();
           const validation = this.validateSchedule(assignments);
           
@@ -259,7 +256,7 @@ export class SchedulingAlgorithm {
 
       // If we couldn't find a complete solution, try a partial one
       this.clearAllAssignments();
-      const partialResult = this.generatePartialSchedule(activeShows);
+      const partialResult = this.generatePartialSchedule();
       
       return {
         success: partialResult.success,
@@ -276,9 +273,10 @@ export class SchedulingAlgorithm {
     }
   }
 
-  private generateScheduleAttempt(activeShows: Show[]): boolean {
+  private generateScheduleAttempt(): boolean {
+    const sortedShows = this.getSortedActiveShows();
     // Assign roles for each active show individually
-    for (const show of activeShows) {
+    for (const show of sortedShows) {
       if (!this.assignRolesForShow(show.id)) {
         return false;
       }
@@ -334,17 +332,17 @@ export class SchedulingAlgorithm {
     return true;
   }
 
-  private generatePartialSchedule(activeShows: Show[]): AutoGenerateResult {
+  private generatePartialSchedule(): AutoGenerateResult {
     const errors: string[] = [];
-    const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
     
     // Get roles sorted by difficulty (fewest eligible performers first)
     const rolesByDifficulty = this.getRolesByDifficulty();
+    const sortedActiveShows = this.getSortedActiveShows();
 
     for (const role of rolesByDifficulty) {
       const eligibleCast = this.castMembers.filter(member => member.eligibleRoles.includes(role));
       
-      for (const show of activeShows) {
+      for (const show of sortedActiveShows) {
         const showAssignment = this.assignments.get(show.id)!;
         
         if (showAssignment[role] === "") {
@@ -411,12 +409,12 @@ export class SchedulingAlgorithm {
   private scoreCastMemberForShow(member: CastMember, showId: string): number {
     let score = 0;
 
-    // Filter active shows for scoring calculations
-    const activeShows = this.shows.filter(show => show.status === "show");
+    // Use the cached sorted active shows
+    const activeShows = this.getSortedActiveShows();
 
     // Get current show count for this member across active shows only
     const currentShowCount = this.getCurrentShowCount(member.name, activeShows);
-    const targetShowCount = Math.floor(activeShows.length * 8 / this.castMembers.length);
+    const targetShowCount = activeShows.length > 0 ? Math.floor(activeShows.length * 8 / this.castMembers.length) : 0;
 
     // Prefer members with fewer shows (load balancing)
     if (currentShowCount < targetShowCount) {
@@ -425,7 +423,7 @@ export class SchedulingAlgorithm {
       score -= 3;
     }
 
-    // Check consecutive shows constraint (only for active shows) - optimized version
+    // Check consecutive shows constraint (only for active shows)
     const consecutiveCount = this.getConsecutiveShowCountOptimized(member.name, showId, activeShows);
     if (consecutiveCount >= 3) {
       score -= 5; // Heavily penalize consecutive shows
@@ -439,22 +437,24 @@ export class SchedulingAlgorithm {
     return score;
   }
 
-  // Optimized version of consecutive show counting for scoring
-  private getConsecutiveShowCountOptimized(memberName: string, currentShowId: string, activeShows?: Show[]): number {
-    const showsToCheck = activeShows || this.shows.filter(show => show.status === "show");
-    
-    // Find current show index
-    const currentShowIndex = showsToCheck.findIndex(show => show.id === currentShowId);
+  private getConsecutiveShowCountOptimized(memberName: string, currentShowId: string, sortedShows: Show[]): number {
+    // Find current show index in the sorted list
+    const currentShowIndex = sortedShows.findIndex(show => show.id === currentShowId);
     if (currentShowIndex === -1) return 0;
 
     // Count backwards from current show
     let consecutiveCount = 0;
     for (let i = currentShowIndex - 1; i >= 0; i--) {
-      const show = showsToCheck[i];
-      const showAssignment = this.assignments.get(show.id)!;
-      const isAssigned = Object.values(showAssignment).includes(memberName);
-      
-      if (isAssigned) {
+      const show = sortedShows[i];
+      const prevShow = sortedShows[i+1];
+
+      // Check if the shows are chronologically consecutive (date-wise)
+      if (!this.areShowsConsecutive(show, prevShow)) {
+        break;
+      }
+
+      const showAssignment = this.assignments.get(show.id);
+      if (showAssignment && Object.values(showAssignment).includes(memberName)) {
         consecutiveCount++;
       } else {
         break;
