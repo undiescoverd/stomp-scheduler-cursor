@@ -12,6 +12,7 @@ interface ScheduleGridProps {
   assignments: Assignment[];
   castMembers: CastMember[];
   roles: Role[];
+  location: string;
   onAssignmentChange: (showId: string, role: Role, performer: string) => void;
   onShowStatusChange: (showId: string, status: DayStatus) => void;
   onShowChange: (showId: string, field: 'date' | 'time' | 'callTime', value: string) => void;
@@ -27,6 +28,7 @@ export function ScheduleGrid({
   assignments,
   castMembers,
   roles,
+  location,
   onAssignmentChange,
   onShowStatusChange,
   onShowChange,
@@ -291,7 +293,7 @@ export function ScheduleGrid({
           <div className="min-w-fit">
             {/* Main Header */}
             <div className="text-center font-bold text-lg mb-4">
-              STOMP - Week {getWeekFromShows()}
+              STOMP - {location} - Week {getWeekFromShows()}
             </div>
             
             <div className="border-t-2 border-black mb-4"></div>

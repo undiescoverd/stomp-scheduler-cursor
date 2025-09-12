@@ -240,7 +240,7 @@ export default function ScheduleEditor() {
       const weekNumber = getWeekNumberFromDate(nextMonday);
       
       setWeek(weekNumber.toString());
-      setLocation('Main Stage');
+      setLocation('London');
       setWeekStartDate(formatDateForInput(nextMonday));
       
       // Generate default shows
@@ -253,7 +253,7 @@ export default function ScheduleEditor() {
     if (!location.trim() || !week.trim()) {
       toast({
         title: "Validation Error",
-        description: "Please fill in location and week",
+        description: "Please fill in city and week",
         variant: "destructive"
       });
       return;
@@ -424,10 +424,10 @@ export default function ScheduleEditor() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
+              <Label htmlFor="location">City</Label>
               <Input
                 id="location"
-                placeholder="e.g., Main Stage, Studio Theater"
+                placeholder="e.g., London, New York, Tokyo"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
               />
@@ -500,6 +500,7 @@ export default function ScheduleEditor() {
         assignments={assignments}
         castMembers={castData?.castMembers || []}
         roles={castData?.roles || []}
+        location={location}
         onAssignmentChange={handleAssignmentChange}
         onShowStatusChange={handleShowStatusChange}
         onShowChange={handleShowChange}
