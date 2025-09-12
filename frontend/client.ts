@@ -97,6 +97,7 @@ import { get as api_scheduler_get_get } from "~backend/scheduler/get";
 import { list as api_scheduler_list_list } from "~backend/scheduler/list";
 import { update as api_scheduler_update_update } from "~backend/scheduler/update";
 import { validate as api_scheduler_validate_validate } from "~backend/scheduler/validate";
+import { validateComprehensive as api_scheduler_validate_comprehensive_validateComprehensive } from "~backend/scheduler/validate_comprehensive";
 
 export namespace scheduler {
 
@@ -118,6 +119,7 @@ export namespace scheduler {
             this.update = this.update.bind(this)
             this.updateMember = this.updateMember.bind(this)
             this.validate = this.validate.bind(this)
+            this.validateComprehensive = this.validateComprehensive.bind(this)
         }
 
         /**
@@ -247,6 +249,15 @@ export namespace scheduler {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/schedules/validate`, {method: "POST", body: JSON.stringify(params)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_validate_validate>
+        }
+
+        /**
+         * Provides comprehensive validation of schedule with detailed business logic analysis.
+         */
+        public async validateComprehensive(params: RequestType<typeof api_scheduler_validate_comprehensive_validateComprehensive>): Promise<ResponseType<typeof api_scheduler_validate_comprehensive_validateComprehensive>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/schedules/validate-comprehensive`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_validate_comprehensive_validateComprehensive>
         }
     }
 }
