@@ -463,16 +463,6 @@ export default function ScheduleEditor() {
               <p className="text-xs text-gray-500">Auto-calculated from start date</p>
             </div>
           </div>
-          
-          <div className="flex justify-end">
-            <Button
-              onClick={handleSave}
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              <Save className="h-4 w-4 mr-2" />
-              {isEditing ? 'Save Changes' : 'Create Schedule'}
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
@@ -491,6 +481,9 @@ export default function ScheduleEditor() {
         onClearAll={handleClearAll}
         onAutoGenerate={handleAutoGenerate}
         isGenerating={isGenerating}
+        onSave={handleSave}
+        isSaving={createMutation.isPending || updateMutation.isPending}
+        isEditing={isEditing}
       />
 
       {/* Analytics */}

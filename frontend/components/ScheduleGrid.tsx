@@ -21,6 +21,9 @@ interface ScheduleGridProps {
   onClearAll: () => void;
   onAutoGenerate: () => void;
   isGenerating: boolean;
+  onSave?: () => void;
+  isSaving?: boolean;
+  isEditing?: boolean;
 }
 
 export function ScheduleGrid({
@@ -36,7 +39,10 @@ export function ScheduleGrid({
   onRemoveShow,
   onClearAll,
   onAutoGenerate,
-  isGenerating
+  isGenerating,
+  onSave,
+  isSaving = false,
+  isEditing = false
 }: ScheduleGridProps) {
   const [editingCell, setEditingCell] = useState<string | null>(null);
 
@@ -285,6 +291,16 @@ export function ScheduleGrid({
               <Plus className="h-4 w-4 mr-2" />
               Add Show
             </Button>
+            {onSave && (
+              <Button onClick={onSave} disabled={isSaving}>
+                {isSaving ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <></>
+                )}
+                {isEditing ? 'Save Changes' : 'Create Schedule'}
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
