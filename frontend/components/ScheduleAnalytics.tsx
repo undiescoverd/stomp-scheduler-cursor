@@ -88,19 +88,9 @@ export function ScheduleAnalytics({ shows, assignments, castMembers }: ScheduleA
     };
   };
 
-  // Get role distribution
-  const getRoleDistribution = () => {
-    const roleCounts: Record<string, number> = {};
-    assignments.forEach(assignment => {
-      roleCounts[assignment.role] = (roleCounts[assignment.role] || 0) + 1;
-    });
-    return roleCounts;
-  };
-
   const showCounts = getShowCounts();
   const consecutiveWarnings = getConsecutiveWarnings();
   const assignmentStats = getAssignmentStats();
-  const roleDistribution = getRoleDistribution();
 
   const getShowCountStatus = (count: number) => {
     if (count < 3) return { label: 'Low', variant: 'secondary' as const, color: 'text-yellow-600' };
@@ -198,33 +188,6 @@ export function ScheduleAnalytics({ shows, assignments, castMembers }: ScheduleA
           </div>
         </CardContent>
       </Card>
-
-      {/* Role Distribution */}
-      {Object.keys(roleDistribution).length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Role Assignment Progress</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {['Sarge', 'Potato', 'Mozzie', 'Ringo', 'Particle', 'Bin', 'Cornish', 'Who'].map(role => {
-                const assigned = roleDistribution[role] || 0;
-                const percentage = shows.length > 0 ? Math.round((assigned / shows.length) * 100) : 0;
-                
-                return (
-                  <div key={role} className="space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span className="font-medium">{role}</span>
-                      <span className="text-gray-600">{assigned} / {shows.length}</span>
-                    </div>
-                    <Progress value={percentage} className="h-2" />
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
