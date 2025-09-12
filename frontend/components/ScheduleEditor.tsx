@@ -388,34 +388,6 @@ export default function ScheduleEditor() {
 
   return (
     <div className="space-y-6 max-w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Button variant="outline" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Schedules
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              {isEditing ? 'Edit Schedule' : 'New Schedule'}
-            </h1>
-            <p className="text-gray-600">
-              {isEditing ? 'Modify your performance schedule' : 'Create a new performance schedule'}
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center space-x-2">
-          <Button
-            onClick={handleSave}
-            disabled={createMutation.isPending || updateMutation.isPending}
-          >
-            <Save className="h-4 w-4 mr-2" />
-            {isEditing ? 'Save Changes' : 'Create Schedule'}
-          </Button>
-        </div>
-      </div>
-
       {/* Basic Information */}
       <Card>
         <CardHeader>
@@ -490,6 +462,16 @@ export default function ScheduleEditor() {
               />
               <p className="text-xs text-gray-500">Auto-calculated from start date</p>
             </div>
+          </div>
+          
+          <div className="flex justify-end">
+            <Button
+              onClick={handleSave}
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {isEditing ? 'Save Changes' : 'Create Schedule'}
+            </Button>
           </div>
         </CardContent>
       </Card>

@@ -7,7 +7,25 @@ import { CompanyManagement } from './CompanyManagement';
 export function AppHeader() {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
+  const isEditPage = location.pathname.includes('/schedule/');
   const [showCompanyManagement, setShowCompanyManagement] = useState(false);
+
+  // Determine page title based on route
+  const getPageTitle = () => {
+    if (location.pathname === '/schedule/new') {
+      return 'New Schedule';
+    } else if (location.pathname.includes('/schedule/')) {
+      return 'Edit Schedule';
+    }
+    return 'STOMP Scheduler';
+  };
+
+  const getPageSubtitle = () => {
+    if (isEditPage) {
+      return 'Performance Cast Management';
+    }
+    return 'Performance Cast Management';
+  };
 
   return (
     <>
@@ -17,8 +35,8 @@ export function AppHeader() {
             <Link to="/" className="flex items-center space-x-2">
               <Calendar className="h-8 w-8 text-blue-600" />
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">STOMP Scheduler</h1>
-                <p className="text-sm text-gray-600">Performance Cast Management</p>
+                <h1 className="text-2xl font-bold text-gray-900">{getPageTitle()}</h1>
+                <p className="text-sm text-gray-600">{getPageSubtitle()}</p>
               </div>
             </Link>
             
@@ -41,12 +59,14 @@ export function AppHeader() {
                 <span>Manage Company</span>
               </Button>
               
-              <Button asChild>
-                <Link to="/schedule/new" className="flex items-center space-x-2">
-                  <Plus className="h-4 w-4" />
-                  <span>New Schedule</span>
-                </Link>
-              </Button>
+              {isHomePage && (
+                <Button asChild>
+                  <Link to="/schedule/new" className="flex items-center space-x-2">
+                    <Plus className="h-4 w-4" />
+                    <span>New Schedule</span>
+                  </Link>
+                </Button>
+              )}
             </div>
           </div>
         </div>
