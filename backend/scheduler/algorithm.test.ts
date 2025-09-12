@@ -181,21 +181,113 @@ describe('SchedulingAlgorithm', () => {
       expect(result.errors.some(error => error.includes("PHIL") && error.includes("multiple roles"))).toBe(true);
     });
 
-    it('should detect consecutive show violations', () => {
+    it('should detect consecutive show violations with proper date-based logic', () => {
+      const consecutiveShows: Show[] = [
+        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show6", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
       const consecutiveAssignments = [
-        // PHIL in 6 consecutive shows
         { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
         { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
         { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
         { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" }
       ];
 
-      const algorithm = new SchedulingAlgorithm(sampleShows);
+      const algorithm = new SchedulingAlgorithm(consecutiveShows);
       const result = algorithm.validateSchedule(consecutiveAssignments);
 
       expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => error.includes("PHIL") && error.includes("consecutive"))).toBe(true);
+      expect(result.errors.some(error => 
+        error.includes("PHIL") && error.includes("6 consecutive")
+      )).toBe(true);
+    });
+
+    it('should handle non-consecutive patterns correctly with date gaps', () => {
+      const patternShows: Show[] = [
+        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show3", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" }, // 3-day gap
+        { id: "show4", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show5", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
+      const patternAssignments = [
+        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
+        // Gap - show3 has different performer
+        { showId: "show3", role: "Sarge" as Role, performer: "SEAN" },
+        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(patternShows);
+      const result = algorithm.validateSchedule(patternAssignments);
+
+      // Should be valid - PHIL has 2 consecutive shows at start, then gap, then 2 more
+      expect(result.isValid).toBe(true);
+      expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
+    });
+
+    it('should properly handle date gaps that break consecutive show counts', () => {
+      const gappedShows: Show[] = [
+        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show4", date: "2024-01-10", time: "19:00", callTime: "18:00", status: "show" }, // 7-day gap
+        { id: "show5", date: "2024-01-11", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show6", date: "2024-01-12", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
+      const gappedAssignments = [
+        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(gappedShows);
+      const result = algorithm.validateSchedule(gappedAssignments);
+
+      // Should be valid - gap of 7 days should break consecutive count
+      expect(result.isValid).toBe(true);
+      expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
+    });
+
+    it('should detect consecutive shows with mixed times on same day', () => {
+      const mixedTimeShows: Show[] = [
+        { id: "show1", date: "2024-01-01", time: "14:00", callTime: "12:00", status: "show" },
+        { id: "show2", date: "2024-01-01", time: "19:00", callTime: "17:00", status: "show" },
+        { id: "show3", date: "2024-01-02", time: "14:00", callTime: "12:00", status: "show" },
+        { id: "show4", date: "2024-01-02", time: "19:00", callTime: "17:00", status: "show" },
+        { id: "show5", date: "2024-01-03", time: "14:00", callTime: "12:00", status: "show" },
+        { id: "show6", date: "2024-01-03", time: "19:00", callTime: "17:00", status: "show" }
+      ];
+
+      const mixedTimeAssignments = [
+        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(mixedTimeShows);
+      const result = algorithm.validateSchedule(mixedTimeAssignments);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some(error => 
+        error.includes("PHIL") && error.includes("6 consecutive")
+      )).toBe(true);
     });
 
     it('should warn about underutilized performers', () => {
@@ -395,8 +487,8 @@ describe('SchedulingAlgorithm', () => {
     });
   });
 
-  describe('Consecutive Shows Logic', () => {
-    it('should properly count consecutive shows', () => {
+  describe('Date-based Consecutive Shows Logic', () => {
+    it('should properly count consecutive shows with date-based logic', () => {
       const consecutiveShows: Show[] = [
         { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
         { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
@@ -424,19 +516,19 @@ describe('SchedulingAlgorithm', () => {
       )).toBe(true);
     });
 
-    it('should handle non-consecutive patterns correctly', () => {
+    it('should handle non-consecutive patterns correctly with date gaps', () => {
       const patternShows: Show[] = [
         { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
         { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" }
+        { id: "show3", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" }, // 3-day gap
+        { id: "show4", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show5", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" }
       ];
 
       const patternAssignments = [
         { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
         { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        // Break - show3 has different performer
+        // Break - show3 has different performer 
         { showId: "show3", role: "Sarge" as Role, performer: "SEAN" },
         { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
         { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
@@ -448,6 +540,116 @@ describe('SchedulingAlgorithm', () => {
       // Should be valid - no more than 2 consecutive shows for PHIL
       expect(result.isValid).toBe(true);
       expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
+    });
+
+    it('should handle irregular scheduling patterns with large gaps', () => {
+      const irregularShows: Show[] = [
+        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show4", date: "2024-01-15", time: "19:00", callTime: "18:00", status: "show" }, // 12-day gap
+        { id: "show5", date: "2024-01-16", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show6", date: "2024-01-17", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show7", date: "2024-01-18", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
+      const irregularAssignments = [
+        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show7", role: "Sarge" as Role, performer: "PHIL" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(irregularShows);
+      const result = algorithm.validateSchedule(irregularAssignments);
+
+      // Should be valid - large gap breaks consecutive count
+      expect(result.isValid).toBe(true);
+      expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
+    });
+
+    it('should handle shows with different times on same date correctly', () => {
+      const sameDayShows: Show[] = [
+        { id: "show1", date: "2024-01-01", time: "14:00", callTime: "12:00", status: "show" },
+        { id: "show2", date: "2024-01-01", time: "19:00", callTime: "17:00", status: "show" },
+        { id: "show3", date: "2024-01-02", time: "14:00", callTime: "12:00", status: "show" },
+        { id: "show4", date: "2024-01-02", time: "19:00", callTime: "17:00", status: "show" },
+        { id: "show5", date: "2024-01-03", time: "14:00", callTime: "12:00", status: "show" }
+      ];
+
+      const sameDayAssignments = [
+        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(sameDayShows);
+      const result = algorithm.validateSchedule(sameDayAssignments);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some(error => 
+        error.includes("PHIL") && error.includes("5 consecutive")
+      )).toBe(true);
+    });
+
+    it('should handle missing dates in show sequence', () => {
+      const missingDateShows: Show[] = [
+        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
+        // Missing 2024-01-03
+        { id: "show3", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show4", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show5", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
+      const missingDateAssignments = [
+        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(missingDateShows);
+      const result = algorithm.validateSchedule(missingDateAssignments);
+
+      // Should still detect consecutive shows (gap of 1 day is within tolerance)
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some(error => 
+        error.includes("PHIL") && error.includes("consecutive")
+      )).toBe(true);
+    });
+
+    it('should handle chronologically unordered shows correctly', () => {
+      const unorderedShows: Show[] = [
+        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
+      const unorderedAssignments = [
+        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
+        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(unorderedShows);
+      const result = algorithm.validateSchedule(unorderedAssignments);
+
+      // Should detect consecutive shows regardless of input order
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some(error => 
+        error.includes("PHIL") && error.includes("5 consecutive")
+      )).toBe(true);
     });
   });
 });

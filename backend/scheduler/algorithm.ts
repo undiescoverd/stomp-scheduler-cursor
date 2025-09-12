@@ -254,14 +254,22 @@ export class SchedulingAlgorithm {
 
   private getConsecutiveShowCount(memberName: string, currentShowId: string, activeShows?: Show[]): number {
     const showsToCheck = activeShows || this.shows.filter(show => show.status === "show");
-    const currentShowIndex = showsToCheck.findIndex(show => show.id === currentShowId);
+    
+    // Sort shows by date and time
+    const sortedShows = [...showsToCheck].sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      return a.time.localeCompare(b.time);
+    });
+
+    const currentShowIndex = sortedShows.findIndex(show => show.id === currentShowId);
     if (currentShowIndex === -1) return 0;
 
     let consecutiveCount = 0;
     
     // Check backwards from current show
     for (let i = currentShowIndex - 1; i >= 0; i--) {
-      const show = showsToCheck[i];
+      const show = sortedShows[i];
       const showAssignment = this.assignments.get(show.id)!;
       const isAssigned = Object.values(showAssignment).includes(memberName);
       
@@ -383,22 +391,71 @@ export class SchedulingAlgorithm {
 
   private getMaxConsecutiveShows(memberName: string, assignments: Assignment[], activeShows?: Show[]): number {
     const showsToCheck = activeShows || this.shows.filter(show => show.status === "show");
-    const memberShows = new Set<string>();
+    
+    // Build a set of show dates where this member is assigned
+    const memberShowDates = new Set<string>();
     assignments.forEach(assignment => {
       if (assignment.performer === memberName) {
-        memberShows.add(assignment.showId);
+        const show = showsToCheck.find(s => s.id === assignment.showId);
+        if (show) {
+          // Create unique date-time identifier for each show
+          memberShowDates.add(`${show.date}T${show.time}`);
+        }
       }
     });
 
+    if (memberShowDates.size === 0) return 0;
+
+    // Get all unique show dates from all shows, sorted chronologically
+    const allShowDateTimes = showsToCheck
+      .map(show => ({
+        dateTime: `${show.date}T${show.time}`,
+        date: show.date,
+        time: show.time
+      }))
+      .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
+
+    // Remove duplicates while preserving order
+    const uniqueShowDateTimes = [];
+    const seen = new Set<string>();
+    for (const show of allShowDateTimes) {
+      if (!seen.has(show.dateTime)) {
+        seen.add(show.dateTime);
+        uniqueShowDateTimes.push(show.dateTime);
+      }
+    }
+
     let maxConsecutive = 0;
     let currentConsecutive = 0;
+    let lastShowDate: Date | null = null;
 
-    for (const show of showsToCheck) {
-      if (memberShows.has(show.id)) {
-        currentConsecutive++;
+    for (const dateTime of uniqueShowDateTimes) {
+      const isAssigned = memberShowDates.has(dateTime);
+      
+      if (isAssigned) {
+        const currentShowDate = new Date(dateTime);
+        
+        // Check if this is consecutive to the last show
+        if (lastShowDate) {
+          const daysDiff = Math.floor((currentShowDate.getTime() - lastShowDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          // Consider consecutive if within 2 days (allows for some flexibility)
+          if (daysDiff <= 2) {
+            currentConsecutive++;
+          } else {
+            // Reset consecutive count for gaps > 2 days
+            currentConsecutive = 1;
+          }
+        } else {
+          currentConsecutive = 1;
+        }
+        
         maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+        lastShowDate = currentShowDate;
       } else {
+        // Reset consecutive count when performer is not assigned
         currentConsecutive = 0;
+        lastShowDate = null;
       }
     }
 
