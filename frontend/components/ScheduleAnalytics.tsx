@@ -172,12 +172,12 @@ export function ScheduleAnalytics({ shows, assignments, castMembers }: ScheduleA
           <CardTitle>Show Distribution</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {Object.entries(showCounts).map(([performer, count]) => {
               const status = getShowCountStatus(count);
               return (
-                <div key={performer} className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="font-medium text-sm">{performer}</div>
+                <div key={performer} className="text-center p-2 bg-gray-50 rounded-lg">
+                  <div className="font-medium text-xs">{performer}</div>
                   <div className="text-lg font-bold">{count}</div>
                   <Badge variant={status.variant} className="text-xs">
                     {status.label}
