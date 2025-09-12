@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScheduleGrid } from './ScheduleGrid';
 import { ScheduleAnalytics } from './ScheduleAnalytics';
 import { ExportControls } from './ExportControls';
-import { Save, ArrowLeft } from 'lucide-react';
+import { Save, ArrowLeft, Calendar, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 
 export default function ScheduleEditor() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +22,7 @@ export default function ScheduleEditor() {
   
   const [location, setLocation] = useState('');
   const [week, setWeek] = useState('');
+  const [weekStartDate, setWeekStartDate] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -116,6 +117,101 @@ export default function ScheduleEditor() {
     }
   });
 
+  // Helper function to get next Monday
+  const getNextMonday = (fromDate = new Date()): Date => {
+    const date = new Date(fromDate);
+    const day = date.getDay();
+    const daysUntilMonday = day === 0 ? 1 : 8 - day; // 0 = Sunday
+    if (day === 1) { // If it's already Monday
+      return date;
+    }
+    date.setDate(date.getDate() + daysUntilMonday);
+    return date;
+  };
+
+  // Helper function to calculate week number from date
+  const getWeekNumberFromDate = (date: Date): number => {
+    const startOfYear = new Date(date.getFullYear(), 0, 1);
+    const pastDaysOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+    return Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
+  };
+
+  // Helper function to format date for input
+  const formatDateForInput = (date: Date): string => {
+    return date.toISOString().split('T')[0];
+  };
+
+  // Helper function to generate shows from week start date
+  const generateShowsFromWeekStart = (weekStartDate: string): Show[] => {
+    const startDate = new Date(weekStartDate);
+    const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+    const defaultShows: Show[] = [
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 1 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '19:00', status: 'show' }, // Tuesday
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '19:00', status: 'show' }, // Wednesday
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 3 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '19:00', status: 'show' }, // Thursday
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 4 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '18:00', status: 'show' }, // Friday
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '16:00', callTime: '14:00', status: 'show' }, // Saturday matinee
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '18:00', status: 'show' }, // Saturday evening
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '16:00', callTime: '14:30', status: 'show' }, // Sunday matinee
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '19:00', callTime: '18:00', status: 'show' }  // Sunday evening
+    ];
+    
+    return defaultShows;
+  };
+
+  // Handle week start date change
+  const handleWeekStartDateChange = (newDate: string) => {
+    setWeekStartDate(newDate);
+    
+    // Auto-calculate week number
+    const date = new Date(newDate);
+    const weekNumber = getWeekNumberFromDate(date);
+    setWeek(weekNumber.toString());
+
+    // Update existing shows dates if we have shows
+    if (shows.length > 0) {
+      const startDate = new Date(newDate);
+      const updatedShows = shows.map((show, index) => {
+        // Calculate new date based on show's position in the week
+        const originalDate = new Date(show.date);
+        const originalWeekStart = new Date(weekStartDate);
+        const dayOffset = Math.floor((originalDate.getTime() - originalWeekStart.getTime()) / (24 * 60 * 60 * 1000));
+        
+        // If we can't calculate offset (first time setting date), use index-based approach
+        const finalDayOffset = isNaN(dayOffset) ? (index < 4 ? index + 1 : index - 3) : dayOffset;
+        
+        const newDate = new Date(startDate.getTime() + finalDayOffset * 24 * 60 * 60 * 1000);
+        
+        return {
+          ...show,
+          date: formatDateForInput(newDate)
+        };
+      });
+      setShows(updatedShows);
+    }
+  };
+
+  // Navigate to previous week
+  const navigateToPreviousWeek = () => {
+    const currentDate = new Date(weekStartDate);
+    const previousWeek = new Date(currentDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    handleWeekStartDateChange(formatDateForInput(previousWeek));
+  };
+
+  // Navigate to next week
+  const navigateToNextWeek = () => {
+    const currentDate = new Date(weekStartDate);
+    const nextWeek = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    handleWeekStartDateChange(formatDateForInput(nextWeek));
+  };
+
+  // Navigate to current week
+  const navigateToCurrentWeek = () => {
+    const nextMonday = getNextMonday();
+    handleWeekStartDateChange(formatDateForInput(nextMonday));
+  };
+
   // Load schedule data when editing
   useEffect(() => {
     if (scheduleData?.schedule) {
@@ -124,48 +220,32 @@ export default function ScheduleEditor() {
       setWeek(schedule.week);
       setShows(schedule.shows);
       setAssignments(schedule.assignments);
+
+      // Calculate week start date from first show
+      if (schedule.shows.length > 0) {
+        const firstShowDate = new Date(schedule.shows[0].date);
+        // Find the Monday of that week
+        const dayOfWeek = firstShowDate.getDay();
+        const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = 0, so 6 days from Monday
+        const mondayDate = new Date(firstShowDate.getTime() - daysFromMonday * 24 * 60 * 60 * 1000);
+        setWeekStartDate(formatDateForInput(mondayDate));
+      }
     }
   }, [scheduleData]);
 
   // Initialize default values for new schedule
   useEffect(() => {
     if (!isEditing) {
-      // Set default week to current week
-      const now = new Date();
-      const startOfYear = new Date(now.getFullYear(), 0, 1);
-      const pastDaysOfYear = (now.getTime() - startOfYear.getTime()) / 86400000;
-      const weekNumber = Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
+      const nextMonday = getNextMonday();
+      const weekNumber = getWeekNumberFromDate(nextMonday);
+      
       setWeek(weekNumber.toString());
       setLocation('Main Stage');
+      setWeekStartDate(formatDateForInput(nextMonday));
       
-      // Add default shows for new schedule
-      const addDefaultShows = () => {
-        const today = new Date();
-        const nextTuesday = new Date(today);
-        const daysUntilTuesday = (2 - today.getDay() + 7) % 7;
-        if (daysUntilTuesday === 0) {
-          nextTuesday.setDate(today.getDate() + 7);
-        } else {
-          nextTuesday.setDate(today.getDate() + daysUntilTuesday);
-        }
-
-        const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
-
-        const defaultShows: Show[] = [
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 0 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '21:00', callTime: '19:00', status: 'show' },
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '21:00', callTime: '19:00', status: 'show' },
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '21:00', callTime: '19:00', status: 'show' },
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '21:00', callTime: '18:00', status: 'show' },
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '16:00', callTime: '14:00', status: 'show' },
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '21:00', callTime: '18:00', status: 'show' },
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '16:00', callTime: '14:30', status: 'show' },
-          { id: generateId(), date: new Date(nextTuesday.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], time: '19:00', callTime: '18:00', status: 'show' }
-        ];
-        
-        setShows(defaultShows);
-      };
-
-      addDefaultShows();
+      // Generate default shows
+      const defaultShows = generateShowsFromWeekStart(formatDateForInput(nextMonday));
+      setShows(defaultShows);
     }
   }, [isEditing]);
 
@@ -342,7 +422,7 @@ export default function ScheduleEditor() {
           <CardTitle>Schedule Information</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="location">Location</Label>
               <Input
@@ -354,13 +434,61 @@ export default function ScheduleEditor() {
             </div>
             
             <div className="space-y-2">
+              <Label htmlFor="weekStartDate">Week Start Date</Label>
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={navigateToPreviousWeek}
+                    className="px-2 rounded-r-none border-r-0"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10 pointer-events-none" />
+                    <Input
+                      id="weekStartDate"
+                      type="date"
+                      value={weekStartDate}
+                      onChange={(e) => handleWeekStartDateChange(e.target.value)}
+                      className="pl-10 rounded-none border-x-0"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={navigateToNextWeek}
+                    className="px-2 rounded-l-none border-l-0 rounded-r-none border-r-0"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={navigateToCurrentWeek}
+                    className="px-2 rounded-l-none text-xs"
+                    title="Jump to current week"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
               <Label htmlFor="week">Week Number</Label>
               <Input
                 id="week"
-                placeholder="e.g., 12, Week 12"
+                placeholder="Auto-calculated"
                 value={week}
                 onChange={(e) => setWeek(e.target.value)}
+                className="bg-gray-50"
               />
+              <p className="text-xs text-gray-500">Auto-calculated from start date</p>
             </div>
           </div>
         </CardContent>
