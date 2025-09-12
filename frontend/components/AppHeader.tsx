@@ -61,7 +61,7 @@ export function AppHeader() {
               </Button>
             )}
             
-            {isHomePage && (
+            {(isHomePage || isCompanyPage) && (
               <Button asChild>
                 <Link to="/schedule/new" className="flex items-center space-x-2">
                   <Plus className="h-4 w-4" />
