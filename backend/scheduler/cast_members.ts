@@ -11,9 +11,9 @@ export const getCastMembers = api<void, GetCastMembersResponse>(
   { expose: true, method: "GET", path: "/cast-members" },
   async () => {
     // Import the company module dynamically to avoid circular dependencies
-    const { getCompany } = await import("./company");
-    
     try {
+      const { getCompany } = await import("./company");
+      
       // Get active company members
       const companyData = await getCompany();
       

@@ -221,257 +221,263 @@ export function CompanyManagement({ isOpen, onClose }: CompanyManagementProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-6xl max-h-[90vh] m-4 flex flex-col">
-        <CardHeader className="flex-shrink-0 border-b">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Users className="h-6 w-6 text-blue-600" />
-              <div>
-                <CardTitle className="text-2xl">Company Management</CardTitle>
-                <p className="text-sm text-gray-600">Manage your STOMP cast members</p>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="w-full max-w-6xl max-h-[90vh] bg-white rounded-lg shadow-xl flex flex-col">
+        {/* Fixed Header */}
+        <div className="flex-shrink-0 border-b">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Users className="h-6 w-6 text-blue-600" />
+                <div>
+                  <CardTitle className="text-2xl">Company Management</CardTitle>
+                  <p className="text-sm text-gray-600">Manage your STOMP cast members</p>
+                </div>
+              </div>
+              <Button variant="outline" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="flex items-center space-x-2 mt-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search cast members..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
               </div>
             </div>
-            <Button variant="outline" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          </CardHeader>
+        </div>
 
-          {/* Search Bar */}
-          <div className="flex items-center space-x-2 mt-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search cast members..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-        </CardHeader>
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-hidden">
+          <CardContent className="p-6 h-full">
+            <Tabs defaultValue="current" className="h-full flex flex-col">
+              <TabsList className="grid w-full grid-cols-2 flex-shrink-0">
+                <TabsTrigger value="current" className="flex items-center space-x-2">
+                  <Users className="h-4 w-4" />
+                  <span>Current Company ({filteredCurrentCompany.length})</span>
+                </TabsTrigger>
+                <TabsTrigger value="archive" className="flex items-center space-x-2">
+                  <Archive className="h-4 w-4" />
+                  <span>Archive ({filteredArchive.length})</span>
+                </TabsTrigger>
+              </TabsList>
 
-        <CardContent className="flex-1 overflow-hidden p-6">
-          <Tabs defaultValue="current" className="h-full flex flex-col">
-            <TabsList className="grid w-full grid-cols-2 flex-shrink-0">
-              <TabsTrigger value="current" className="flex items-center space-x-2">
-                <Users className="h-4 w-4" />
-                <span>Current Company ({filteredCurrentCompany.length})</span>
-              </TabsTrigger>
-              <TabsTrigger value="archive" className="flex items-center space-x-2">
-                <Archive className="h-4 w-4" />
-                <span>Archive ({filteredArchive.length})</span>
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="current" className="flex-1 overflow-auto mt-4 space-y-4">
-              {/* Add New Member Form */}
-              {showAddForm && (
-                <Card className="border-dashed border-blue-300 bg-blue-50">
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <Input
-                          placeholder="Cast member name"
-                          value={newMemberName}
-                          onChange={(e) => setNewMemberName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleAddMember();
-                            }
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <RoleSelector
-                          selectedRoles={newMemberRoles}
-                          availableRoles={roles}
-                          onChange={setNewMemberRoles}
-                          placeholder="Select roles..."
-                        />
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button onClick={handleAddMember} disabled={addMemberMutation.isPending}>
-                          Add Member
-                        </Button>
-                        <Button variant="outline" onClick={() => setShowAddForm(false)}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Add New Member Button */}
-              {!showAddForm && (
-                <Button
-                  variant="dashed"
-                  className="w-full border-dashed border-2 h-16 text-gray-600 hover:text-gray-900 hover:border-gray-400"
-                  onClick={() => setShowAddForm(true)}
-                >
-                  <UserPlus className="h-5 w-5 mr-2" />
-                  Add New Cast Member
-                </Button>
-              )}
-
-              {/* Current Company List */}
-              <div className="space-y-3">
-                {filteredCurrentCompany.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    {searchTerm ? 'No cast members match your search' : 'No current company members'}
-                  </div>
-                ) : (
-                  filteredCurrentCompany.map((member) => (
-                    <Card key={member.id} className="hover:shadow-md transition-shadow">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3 flex-1">
-                            <GripVertical className="h-4 w-4 text-gray-400 cursor-move" />
-                            
-                            <div className="flex-1">
-                              {editingMember === member.id ? (
-                                <Input
-                                  defaultValue={member.name}
-                                  className="font-medium"
-                                  autoFocus
-                                  onBlur={(e) => {
-                                    handleUpdateName(member, e.target.value);
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      handleUpdateName(member, e.currentTarget.value);
-                                    } else if (e.key === 'Escape') {
-                                      setEditingMember(null);
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <div
-                                  className="font-medium cursor-pointer hover:text-blue-600 flex items-center space-x-2"
-                                  onClick={() => setEditingMember(member.id)}
-                                >
-                                  <span>{member.name}</span>
-                                  <Edit3 className="h-3 w-3 opacity-50" />
-                                </div>
-                              )}
-                              
-                              <div className="mt-2">
-                                <RoleSelector
-                                  selectedRoles={member.eligibleRoles}
-                                  availableRoles={roles}
-                                  onChange={(newRoles) => handleUpdateRoles(member, newRoles)}
-                                  displayMode="badges"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-2">
-                            <Select onValueChange={(value) => {
-                              if (value === 'on_tour') {
-                                handleArchiveMember(member, 'on_tour', 'Moved to tour production');
-                              } else if (value === 'substitute') {
-                                handleArchiveMember(member, 'substitute', 'Available as substitute');
-                              } else if (value === 'alumni') {
-                                handleArchiveMember(member, 'alumni', 'Contract ended');
+              <TabsContent value="current" className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2">
+                {/* Add New Member Form */}
+                {showAddForm && (
+                  <Card className="border-dashed border-blue-300 bg-blue-50">
+                    <CardContent className="p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <Input
+                            placeholder="Cast member name"
+                            value={newMemberName}
+                            onChange={(e) => setNewMemberName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleAddMember();
                               }
-                            }}>
-                              <SelectTrigger className="w-32">
-                                <SelectValue placeholder="Archive" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="on_tour">Move to Tour</SelectItem>
-                                <SelectItem value="substitute">Make Substitute</SelectItem>
-                                <SelectItem value="alumni">Move to Alumni</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
+                            }}
+                          />
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="archive" className="flex-1 overflow-auto mt-4 space-y-4">
-              {/* Archive Filter Tabs */}
-              <Tabs value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as any)} className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="all">All ({archiveCounts.all})</TabsTrigger>
-                  <TabsTrigger value="on_tour">On Tour ({archiveCounts.on_tour})</TabsTrigger>
-                  <TabsTrigger value="substitute">Substitutes ({archiveCounts.substitute})</TabsTrigger>
-                  <TabsTrigger value="alumni">Alumni ({archiveCounts.alumni})</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value={archiveFilter} className="mt-4">
-                  <div className="space-y-3">
-                    {filteredArchive.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        {searchTerm ? 'No archived members match your search' : 'No archived members in this category'}
+                        <div>
+                          <RoleSelector
+                            selectedRoles={newMemberRoles}
+                            availableRoles={roles}
+                            onChange={setNewMemberRoles}
+                            placeholder="Select roles..."
+                          />
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button onClick={handleAddMember} disabled={addMemberMutation.isPending}>
+                            Add Member
+                          </Button>
+                          <Button variant="outline" onClick={() => setShowAddForm(false)}>
+                            Cancel
+                          </Button>
+                        </div>
                       </div>
-                    ) : (
-                      filteredArchive.map((member) => (
-                        <Card key={member.id} className="bg-gray-50 hover:shadow-md transition-shadow">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Add New Member Button */}
+                {!showAddForm && (
+                  <Button
+                    variant="dashed"
+                    className="w-full border-dashed border-2 h-16 text-gray-600 hover:text-gray-900 hover:border-gray-400"
+                    onClick={() => setShowAddForm(true)}
+                  >
+                    <UserPlus className="h-5 w-5 mr-2" />
+                    Add New Cast Member
+                  </Button>
+                )}
+
+                {/* Current Company List */}
+                <div className="space-y-3">
+                  {filteredCurrentCompany.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      {searchTerm ? 'No cast members match your search' : 'No current company members'}
+                    </div>
+                  ) : (
+                    filteredCurrentCompany.map((member) => (
+                      <Card key={member.id} className="hover:shadow-md transition-shadow">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3 flex-1">
+                              <GripVertical className="h-4 w-4 text-gray-400 cursor-move" />
+                              
                               <div className="flex-1">
-                                <div className="flex items-center space-x-3">
-                                  <span className="font-medium text-gray-700">{member.name}</span>
-                                  <Badge variant="secondary" className="text-xs">
-                                    {member.archiveCategory?.replace('_', ' ') || 'Archived'}
-                                  </Badge>
-                                </div>
-                                
-                                <div className="mt-2 flex flex-wrap gap-1">
-                                  {member.eligibleRoles.map((role) => (
-                                    <Badge key={role} variant="outline" className="text-xs">
-                                      {role}
-                                    </Badge>
-                                  ))}
-                                </div>
-                                
-                                {member.archiveReason && (
-                                  <p className="text-xs text-gray-500 mt-1">{member.archiveReason}</p>
+                                {editingMember === member.id ? (
+                                  <Input
+                                    defaultValue={member.name}
+                                    className="font-medium"
+                                    autoFocus
+                                    onBlur={(e) => {
+                                      handleUpdateName(member, e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleUpdateName(member, e.currentTarget.value);
+                                      } else if (e.key === 'Escape') {
+                                        setEditingMember(null);
+                                      }
+                                    }}
+                                  />
+                                ) : (
+                                  <div
+                                    className="font-medium cursor-pointer hover:text-blue-600 flex items-center space-x-2"
+                                    onClick={() => setEditingMember(member.id)}
+                                  >
+                                    <span>{member.name}</span>
+                                    <Edit3 className="h-3 w-3 opacity-50" />
+                                  </div>
                                 )}
                                 
-                                <p className="text-xs text-gray-400 mt-1">
-                                  Archived {member.dateArchived?.toLocaleDateString()}
-                                </p>
-                              </div>
-
-                              <div className="flex items-center space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleRestoreMember(member)}
-                                  className="text-green-600 hover:text-green-700"
-                                >
-                                  <ArrowUp className="h-3 w-3 mr-1" />
-                                  Restore
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleDeleteMember(member)}
-                                  className="text-red-600 hover:text-red-700"
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
+                                <div className="mt-2">
+                                  <RoleSelector
+                                    selectedRoles={member.eligibleRoles}
+                                    availableRoles={roles}
+                                    onChange={(newRoles) => handleUpdateRoles(member, newRoles)}
+                                    displayMode="badges"
+                                  />
+                                </div>
                               </div>
                             </div>
-                          </CardContent>
-                        </Card>
-                      ))
-                    )}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+
+                            <div className="flex items-center space-x-2">
+                              <Select onValueChange={(value) => {
+                                if (value === 'on_tour') {
+                                  handleArchiveMember(member, 'on_tour', 'Moved to tour production');
+                                } else if (value === 'substitute') {
+                                  handleArchiveMember(member, 'substitute', 'Available as substitute');
+                                } else if (value === 'alumni') {
+                                  handleArchiveMember(member, 'alumni', 'Contract ended');
+                                }
+                              }}>
+                                <SelectTrigger className="w-32">
+                                  <SelectValue placeholder="Archive" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="on_tour">Move to Tour</SelectItem>
+                                  <SelectItem value="substitute">Make Substitute</SelectItem>
+                                  <SelectItem value="alumni">Move to Alumni</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="archive" className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2">
+                {/* Archive Filter Tabs */}
+                <Tabs value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as any)} className="w-full">
+                  <TabsList className="grid w-full grid-cols-4">
+                    <TabsTrigger value="all">All ({archiveCounts.all})</TabsTrigger>
+                    <TabsTrigger value="on_tour">On Tour ({archiveCounts.on_tour})</TabsTrigger>
+                    <TabsTrigger value="substitute">Substitutes ({archiveCounts.substitute})</TabsTrigger>
+                    <TabsTrigger value="alumni">Alumni ({archiveCounts.alumni})</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value={archiveFilter} className="mt-4">
+                    <div className="space-y-3">
+                      {filteredArchive.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          {searchTerm ? 'No archived members match your search' : 'No archived members in this category'}
+                        </div>
+                      ) : (
+                        filteredArchive.map((member) => (
+                          <Card key={member.id} className="bg-gray-50 hover:shadow-md transition-shadow">
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-3">
+                                    <span className="font-medium text-gray-700">{member.name}</span>
+                                    <Badge variant="secondary" className="text-xs">
+                                      {member.archiveCategory?.replace('_', ' ') || 'Archived'}
+                                    </Badge>
+                                  </div>
+                                  
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {member.eligibleRoles.map((role) => (
+                                      <Badge key={role} variant="outline" className="text-xs">
+                                        {role}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                  
+                                  {member.archiveReason && (
+                                    <p className="text-xs text-gray-500 mt-1">{member.archiveReason}</p>
+                                  )}
+                                  
+                                  <p className="text-xs text-gray-400 mt-1">
+                                    Archived {member.dateArchived?.toLocaleDateString()}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center space-x-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleRestoreMember(member)}
+                                    className="text-green-600 hover:text-green-700"
+                                  >
+                                    <ArrowUp className="h-3 w-3 mr-1" />
+                                    Restore
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleDeleteMember(member)}
+                                    className="text-red-600 hover:text-red-700"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </div>
+      </div>
     </div>
   );
 }
