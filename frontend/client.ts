@@ -209,13 +209,13 @@ export namespace scheduler {
         }
 
         /**
-         * Toggles the RED day status for a performer's OFF assignment.
+         * Toggles the RED day status for a performer for an entire date.
          */
         public async toggleRedDay(params: RequestType<typeof api_scheduler_toggle_red_day_toggleRedDay>): Promise<ResponseType<typeof api_scheduler_toggle_red_day_toggleRedDay>> {
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
             const body: Record<string, any> = {
+                date:      params.date,
                 performer: params.performer,
-                showId:    params.showId,
             }
 
             // Now make the actual call to the API
