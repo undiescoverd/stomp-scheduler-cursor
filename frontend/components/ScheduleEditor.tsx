@@ -92,10 +92,30 @@ export default function ScheduleEditor() {
     onSuccess: (response) => {
       if (response.success) {
         setAssignments(response.assignments);
-        toast({
-          title: "Success",
-          description: "Schedule generated successfully"
+        
+        // Check for critical violations in the response
+        const stageAssignments = response.assignments.filter(a => a.role !== "OFF");
+        const performerShowCounts = new Map<string, number>();
+        
+        // Quick check for consecutive shows or overwork
+        stageAssignments.forEach(assignment => {
+          const count = performerShowCounts.get(assignment.performer) || 0;
+          performerShowCounts.set(assignment.performer, count + 1);
         });
+        
+        const maxShows = Math.max(...Array.from(performerShowCounts.values()));
+        if (maxShows > 6) {
+          toast({
+            title: "Warning",
+            description: `Schedule generated but some performers may be overworked (${maxShows} shows max)`,
+            variant: "destructive"
+          });
+        } else {
+          toast({
+            title: "Success",
+            description: "Schedule generated successfully with improved constraints"
+          });
+        }
       } else {
         toast({
           title: "Generation Failed",
@@ -375,6 +395,11 @@ export default function ScheduleEditor() {
     }
   };
 
+  // Handle assignment updates from the grid (for RED day toggles)
+  const handleAssignmentUpdate = (updatedAssignments: Assignment[]) => {
+    setAssignments(updatedAssignments);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-64">
@@ -473,6 +498,7 @@ export default function ScheduleEditor() {
         castMembers={castData?.castMembers || []}
         roles={castData?.roles || []}
         location={location}
+        scheduleId={id}
         onAssignmentChange={handleAssignmentChange}
         onShowStatusChange={handleShowStatusChange}
         onShowChange={handleShowChange}
@@ -484,13 +510,14 @@ export default function ScheduleEditor() {
         onSave={handleSave}
         isSaving={createMutation.isPending || updateMutation.isPending}
         isEditing={isEditing}
+        onAssignmentUpdate={handleAssignmentUpdate}
       />
 
       {/* Analytics */}
       {shows.length > 0 && (
         <ScheduleAnalytics
           shows={shows.filter(show => show.status === 'show')}
-          assignments={assignments}
+          assignments={assignments.filter(a => a.role !== "OFF")}
           castMembers={castData?.castMembers || []}
         />
       )}

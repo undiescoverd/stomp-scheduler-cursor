@@ -95,6 +95,7 @@ import { create as api_scheduler_create_create } from "~backend/scheduler/create
 import { deleteSchedule as api_scheduler_delete_deleteSchedule } from "~backend/scheduler/delete";
 import { get as api_scheduler_get_get } from "~backend/scheduler/get";
 import { list as api_scheduler_list_list } from "~backend/scheduler/list";
+import { toggleRedDay as api_scheduler_toggle_red_day_toggleRedDay } from "~backend/scheduler/toggle_red_day";
 import { update as api_scheduler_update_update } from "~backend/scheduler/update";
 import { validate as api_scheduler_validate_validate } from "~backend/scheduler/validate";
 import { validateComprehensive as api_scheduler_validate_comprehensive_validateComprehensive } from "~backend/scheduler/validate_comprehensive";
@@ -116,6 +117,7 @@ export namespace scheduler {
             this.getCompany = this.getCompany.bind(this)
             this.list = this.list.bind(this)
             this.reorderMembers = this.reorderMembers.bind(this)
+            this.toggleRedDay = this.toggleRedDay.bind(this)
             this.update = this.update.bind(this)
             this.updateMember = this.updateMember.bind(this)
             this.validate = this.validate.bind(this)
@@ -204,6 +206,21 @@ export namespace scheduler {
          */
         public async reorderMembers(params: RequestType<typeof api_scheduler_company_reorderMembers>): Promise<void> {
             await this.baseClient.callTypedAPI(`/company/reorder`, {method: "PUT", body: JSON.stringify(params)})
+        }
+
+        /**
+         * Toggles the RED day status for a performer's OFF assignment.
+         */
+        public async toggleRedDay(params: RequestType<typeof api_scheduler_toggle_red_day_toggleRedDay>): Promise<ResponseType<typeof api_scheduler_toggle_red_day_toggleRedDay>> {
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                performer: params.performer,
+                showId:    params.showId,
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/schedules/${encodeURIComponent(params.id)}/toggle-red-day`, {method: "PUT", body: JSON.stringify(body)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_toggle_red_day_toggleRedDay>
         }
 
         /**

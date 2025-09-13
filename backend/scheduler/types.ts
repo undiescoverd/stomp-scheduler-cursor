@@ -17,8 +17,9 @@ export interface Show {
 
 export interface Assignment {
   showId: string;
-  role: Role;
+  role: Role | "OFF";
   performer: string;
+  isRedDay?: boolean;
 }
 
 export interface Schedule {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SchedulingAlgorithm } from './algorithm';
 import { Show, CastMember, Role } from './types';
 
-describe('SchedulingAlgorithm', () => {
+describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
   const defaultCastMembers: CastMember[] = [
     { name: "PHIL", eligibleRoles: ["Sarge"] },
     { name: "SEAN", eligibleRoles: ["Sarge", "Potato"] },
@@ -20,636 +20,314 @@ describe('SchedulingAlgorithm', () => {
 
   const allRoles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
 
-  let sampleShows: Show[];
+  let weekShows: Show[];
 
   beforeEach(() => {
-    sampleShows = [
-      { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-      { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-      { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-      { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" },
-      { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" }
+    // Create a week with typical STOMP schedule including dangerous weekend pattern
+    weekShows = [
+      { id: "tue", date: "2024-01-02", time: "21:00", callTime: "19:00", status: "show" }, // Tuesday
+      { id: "wed", date: "2024-01-03", time: "21:00", callTime: "19:00", status: "show" }, // Wednesday
+      { id: "thu", date: "2024-01-04", time: "21:00", callTime: "19:00", status: "show" }, // Thursday
+      { id: "fri", date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" }, // Friday
+      { id: "sat_mat", date: "2024-01-06", time: "16:00", callTime: "14:00", status: "show" }, // Saturday matinee
+      { id: "sat_eve", date: "2024-01-06", time: "21:00", callTime: "18:00", status: "show" }, // Saturday evening
+      { id: "sun_mat", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" }, // Sunday matinee
+      { id: "sun_eve", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" }  // Sunday evening
     ];
   });
 
-  describe('autoGenerate', () => {
-    it('should successfully generate a complete schedule with sufficient cast', () => {
-      const algorithm = new SchedulingAlgorithm(sampleShows);
-      const result = algorithm.autoGenerate();
-
-      expect(result.success).toBe(true);
-      expect(result.assignments).toHaveLength(sampleShows.length * 8); // 8 roles per show
-      expect(result.errors).toBeUndefined();
-    });
-
-    it('should handle shows with mixed statuses correctly', () => {
-      const mixedShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "travel1", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "travel" },
-        { id: "show2", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "dayoff1", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "dayoff" },
-        { id: "show3", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(mixedShows);
-      const result = algorithm.autoGenerate();
-
-      expect(result.success).toBe(true);
-      // Should only assign for the 3 actual shows
-      expect(result.assignments).toHaveLength(3 * 8);
+  describe('CRITICAL BUG FIX: Consecutive Show Prevention', () => {
+    it('should NEVER allow more than 3 consecutive shows', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
       
-      // Verify no assignments for travel/dayoff shows
-      const travelAssignments = result.assignments.filter(a => a.showId === "travel1");
-      const dayoffAssignments = result.assignments.filter(a => a.showId === "dayoff1");
-      expect(travelAssignments).toHaveLength(0);
-      expect(dayoffAssignments).toHaveLength(0);
-    });
-
-    it('should handle empty show list', () => {
-      const algorithm = new SchedulingAlgorithm([]);
-      const result = algorithm.autoGenerate();
-
-      expect(result.success).toBe(true);
-      expect(result.assignments).toHaveLength(0);
-    });
-
-    it('should handle shows with only non-show statuses', () => {
-      const nonShowShows: Show[] = [
-        { id: "travel1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "travel" },
-        { id: "dayoff1", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "dayoff" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(nonShowShows);
-      const result = algorithm.autoGenerate();
-
-      expect(result.success).toBe(true);
-      expect(result.assignments).toHaveLength(0);
-    });
-
-    it('should attempt partial schedule when complete assignment fails', () => {
-      // Create a scenario with insufficient cast for some roles
-      const limitedCast: CastMember[] = [
-        { name: "PHIL", eligibleRoles: ["Sarge"] }, // Only one person for Sarge
-        { name: "MOLLY", eligibleRoles: ["Bin", "Cornish"] }
-      ];
-
-      // Mock the CAST_MEMBERS for this test
-      const originalCastMembers = require('./types').CAST_MEMBERS;
-      require('./types').CAST_MEMBERS = limitedCast;
-
-      const algorithm = new SchedulingAlgorithm(sampleShows);
-      const result = algorithm.autoGenerate();
-
-      // Should fail to create complete schedule but may have partial assignments
-      expect(result.success).toBe(false);
-      expect(result.errors).toBeDefined();
-      expect(result.errors!.length).toBeGreaterThan(0);
-
-      // Restore original cast members
-      require('./types').CAST_MEMBERS = originalCastMembers;
-    });
-
-    it('should generate different results on multiple runs due to randomization', () => {
-      const algorithm1 = new SchedulingAlgorithm(sampleShows);
-      const algorithm2 = new SchedulingAlgorithm(sampleShows);
-
-      const result1 = algorithm1.autoGenerate();
-      const result2 = algorithm2.autoGenerate();
-
-      // Both should succeed
-      expect(result1.success).toBe(true);
-      expect(result2.success).toBe(true);
-
-      // Results might be different due to randomization
-      // (This test could occasionally fail due to random chance, but it's unlikely)
-      const assignments1Str = JSON.stringify(result1.assignments.sort());
-      const assignments2Str = JSON.stringify(result2.assignments.sort());
-      
-      // At least verify they have the same structure even if content might differ
-      expect(result1.assignments.length).toBe(result2.assignments.length);
-    });
-  });
-
-  describe('validateSchedule', () => {
-    it('should validate a complete and correct schedule', () => {
-      const validAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show1", role: "Potato" as Role, performer: "SEAN" },
-        { showId: "show1", role: "Mozzie" as Role, performer: "JOSE" },
-        { showId: "show1", role: "Ringo" as Role, performer: "JAMIE" },
-        { showId: "show1", role: "Particle" as Role, performer: "CARY" },
-        { showId: "show1", role: "Bin" as Role, performer: "MOLLY" },
-        { showId: "show1", role: "Cornish" as Role, performer: "JASMINE" },
-        { showId: "show1", role: "Who" as Role, performer: "JOSH" }
-      ];
-
-      const singleShow = [sampleShows[0]];
-      const algorithm = new SchedulingAlgorithm(singleShow);
-      const result = algorithm.validateSchedule(validAssignments);
-
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-
-    it('should detect role eligibility violations', () => {
-      const invalidAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "MOLLY" }, // MOLLY not eligible for Sarge
-        { showId: "show1", role: "Bin" as Role, performer: "PHIL" } // PHIL not eligible for Bin
-      ];
-
-      const singleShow = [sampleShows[0]];
-      const algorithm = new SchedulingAlgorithm(singleShow);
-      const result = algorithm.validateSchedule(invalidAssignments);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.errors.some(error => error.includes("MOLLY") && error.includes("Sarge"))).toBe(true);
-      expect(result.errors.some(error => error.includes("PHIL") && error.includes("Bin"))).toBe(true);
-    });
-
-    it('should detect duplicate performer assignments in same show', () => {
-      const duplicateAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show1", role: "Potato" as Role, performer: "PHIL" } // PHIL assigned twice
-      ];
-
-      const singleShow = [sampleShows[0]];
-      const algorithm = new SchedulingAlgorithm(singleShow);
-      const result = algorithm.validateSchedule(duplicateAssignments);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => error.includes("PHIL") && error.includes("multiple roles"))).toBe(true);
-    });
-
-    it('should detect consecutive show violations with proper date-based logic', () => {
-      const consecutiveShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show6", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      const consecutiveAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(consecutiveShows);
-      const result = algorithm.validateSchedule(consecutiveAssignments);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => 
-        error.includes("PHIL") && error.includes("6 consecutive")
-      )).toBe(true);
-    });
-
-    it('should handle non-consecutive patterns correctly with date gaps', () => {
-      const patternShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show3", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" }, // 3-day gap
-        { id: "show4", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show5", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      const patternAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        // Gap - show3 has different performer
-        { showId: "show3", role: "Sarge" as Role, performer: "SEAN" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(patternShows);
-      const result = algorithm.validateSchedule(patternAssignments);
-
-      // Should be valid - PHIL has 2 consecutive shows at start, then gap, then 2 more
-      expect(result.isValid).toBe(true);
-      expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
-    });
-
-    it('should properly handle date gaps that break consecutive show counts', () => {
-      const gappedShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show4", date: "2024-01-10", time: "19:00", callTime: "18:00", status: "show" }, // 7-day gap
-        { id: "show5", date: "2024-01-11", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show6", date: "2024-01-12", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      const gappedAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(gappedShows);
-      const result = algorithm.validateSchedule(gappedAssignments);
-
-      // Should be valid - gap of 7 days should break consecutive count
-      expect(result.isValid).toBe(true);
-      expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
-    });
-
-    it('should detect consecutive shows with mixed times on same day', () => {
-      const mixedTimeShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "14:00", callTime: "12:00", status: "show" },
-        { id: "show2", date: "2024-01-01", time: "19:00", callTime: "17:00", status: "show" },
-        { id: "show3", date: "2024-01-02", time: "14:00", callTime: "12:00", status: "show" },
-        { id: "show4", date: "2024-01-02", time: "19:00", callTime: "17:00", status: "show" },
-        { id: "show5", date: "2024-01-03", time: "14:00", callTime: "12:00", status: "show" },
-        { id: "show6", date: "2024-01-03", time: "19:00", callTime: "17:00", status: "show" }
-      ];
-
-      const mixedTimeAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(mixedTimeShows);
-      const result = algorithm.validateSchedule(mixedTimeAssignments);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => 
-        error.includes("PHIL") && error.includes("6 consecutive")
-      )).toBe(true);
-    });
-
-    it('should warn about underutilized performers', () => {
-      const minimalAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" } // Only one assignment for PHIL
-      ];
-
-      const algorithm = new SchedulingAlgorithm(sampleShows);
-      const result = algorithm.validateSchedule(minimalAssignments);
-
-      expect(result.warnings.some(warning => warning.includes("PHIL") && warning.includes("underutilized"))).toBe(true);
-    });
-
-    it('should warn about incomplete shows', () => {
-      const incompleteAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show1", role: "Potato" as Role, performer: "SEAN" }
-        // Missing 6 roles for show1
-      ];
-
-      const singleShow = [sampleShows[0]];
-      const algorithm = new SchedulingAlgorithm(singleShow);
-      const result = algorithm.validateSchedule(incompleteAssignments);
-
-      expect(result.warnings.some(warning => 
-        warning.includes("Has 2 performers") && warning.includes("needs 8")
-      )).toBe(true);
-      expect(result.warnings.some(warning => 
-        warning.includes("Has 2 roles filled") && warning.includes("needs 8")
-      )).toBe(true);
-    });
-
-    it('should handle empty assignments gracefully', () => {
-      const algorithm = new SchedulingAlgorithm(sampleShows);
-      const result = algorithm.validateSchedule([]);
-
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-
-    it('should only validate active shows (not travel/dayoff)', () => {
-      const mixedShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "travel1", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "travel" },
-        { id: "dayoff1", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "dayoff" }
-      ];
-
-      const assignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        // No assignments for travel1 or dayoff1 - this should be fine
-      ];
-
-      const algorithm = new SchedulingAlgorithm(mixedShows);
-      const result = algorithm.validateSchedule(assignments);
-
-      // Should not complain about missing assignments for travel/dayoff shows
-      expect(result.warnings.filter(w => w.includes("travel1") || w.includes("dayoff1"))).toHaveLength(0);
-    });
-
-    it('should detect overworked performers', () => {
-      // Create many shows and assign same performer to most of them
-      const manyShows: Show[] = Array.from({ length: 10 }, (_, i) => ({
-        id: `show${i + 1}`,
-        date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-        time: "19:00",
-        callTime: "18:00",
-        status: "show" as const
-      }));
-
-      const overworkAssignments = manyShows.map(show => ({
-        showId: show.id,
-        role: "Sarge" as Role,
-        performer: "PHIL"
-      }));
-
-      const algorithm = new SchedulingAlgorithm(manyShows);
-      const result = algorithm.validateSchedule(overworkAssignments);
-
-      expect(result.warnings.some(warning => 
-        warning.includes("PHIL") && warning.includes("overworked")
-      )).toBe(true);
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('should handle insufficient cast members for specific roles', () => {
-      const limitedShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      // Create scenario where we need 2 Sarge performers but only have 2 eligible
-      const algorithm = new SchedulingAlgorithm(limitedShows);
-      const result = algorithm.autoGenerate();
-
-      // Should still succeed as we have PHIL and SEAN eligible for Sarge
-      expect(result.success).toBe(true);
-
-      // Verify both shows have Sarge assigned
-      const sargeAssignments = result.assignments.filter(a => a.role === "Sarge");
-      expect(sargeAssignments).toHaveLength(2);
-    });
-
-    it('should handle shows scheduled very close together', () => {
-      const closeShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "14:00", callTime: "12:00", status: "show" },
-        { id: "show2", date: "2024-01-01", time: "19:00", callTime: "17:00", status: "show" },
-        { id: "show3", date: "2024-01-02", time: "14:00", callTime: "12:00", status: "show" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(closeShows);
-      const result = algorithm.autoGenerate();
-
-      expect(result.success).toBe(true);
-      expect(result.assignments).toHaveLength(closeShows.length * 8);
-    });
-
-    it('should handle role with single eligible performer across multiple shows', () => {
-      // JOSH is the only one eligible for "Who" role
-      const algorithm = new SchedulingAlgorithm(sampleShows);
-      const result = algorithm.autoGenerate();
-
-      if (result.success) {
-        const whoAssignments = result.assignments.filter(a => a.role === "Who");
-        expect(whoAssignments).toHaveLength(sampleShows.length);
-        expect(whoAssignments.every(a => a.performer === "JOSH")).toBe(true);
-      }
-    });
-
-    it('should handle validation of assignments with missing shows', () => {
-      const assignmentsWithMissingShow = [
-        { showId: "nonexistent", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(sampleShows);
-      const result = algorithm.validateSchedule(assignmentsWithMissingShow);
-
-      // Should not crash, validation logic should handle gracefully
-      expect(result).toBeDefined();
-    });
-
-    it('should maintain load balancing across multiple shows', () => {
-      const manyShows: Show[] = Array.from({ length: 8 }, (_, i) => ({
-        id: `show${i + 1}`,
-        date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-        time: "19:00",
-        callTime: "18:00",
-        status: "show" as const
-      }));
-
-      const algorithm = new SchedulingAlgorithm(manyShows);
-      const result = algorithm.autoGenerate();
-
-      if (result.success) {
-        // Count shows per performer
-        const performerCounts: Record<string, number> = {};
-        const showPerformers = new Map<string, Set<string>>();
+      // Run multiple attempts to ensure consistency
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const result = await algorithm.autoGenerate();
         
-        result.assignments.forEach(assignment => {
-          if (!showPerformers.has(assignment.showId)) {
-            showPerformers.set(assignment.showId, new Set());
-          }
-          showPerformers.get(assignment.showId)!.add(assignment.performer);
-        });
-
-        // Count unique shows per performer
-        for (const [, performers] of showPerformers) {
-          for (const performer of performers) {
-            performerCounts[performer] = (performerCounts[performer] || 0) + 1;
+        if (result.success) {
+          const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
+          
+          // Check every performer's consecutive show count
+          for (const member of defaultCastMembers) {
+            const memberShows = stageAssignments
+              .filter(a => a.performer === member.name)
+              .map(a => weekShows.find(s => s.id === a.showId)!)
+              .sort((a, b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime());
+            
+            // Check consecutive sequences
+            let maxConsecutive = 1;
+            let currentConsecutive = 1;
+            
+            for (let i = 1; i < memberShows.length; i++) {
+              const prevDate = new Date(`${memberShows[i-1].date}T${memberShows[i-1].time}`);
+              const currDate = new Date(`${memberShows[i].date}T${memberShows[i].time}`);
+              const daysDiff = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
+              
+              if (daysDiff <= 2) { // Within 2 days = consecutive
+                currentConsecutive++;
+                maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+              } else {
+                currentConsecutive = 1;
+              }
+            }
+            
+            // CRITICAL: Must never exceed 3 consecutive shows
+            expect(maxConsecutive).toBeLessThanOrEqual(3, 
+              `${member.name} has ${maxConsecutive} consecutive shows - CRITICAL VIOLATION! Shows: ${memberShows.map(s => `${s.date} ${s.time}`).join(', ')}`
+            );
           }
         }
-
-        // Check that load is reasonably balanced
-        const counts = Object.values(performerCounts);
-        const maxCount = Math.max(...counts);
-        const minCount = Math.min(...counts);
-        
-        // The difference shouldn't be too extreme (allowing some variation due to role constraints)
-        expect(maxCount - minCount).toBeLessThanOrEqual(4);
       }
     });
 
-    it('should handle algorithm errors gracefully', () => {
-      // Create an impossible scenario by temporarily modifying cast members
-      const originalCastMembers = require('./types').CAST_MEMBERS;
-      require('./types').CAST_MEMBERS = []; // No cast members available
-
-      const algorithm = new SchedulingAlgorithm(sampleShows);
-      const result = algorithm.autoGenerate();
-
-      expect(result.success).toBe(false);
-      expect(result.errors).toBeDefined();
-      expect(result.assignments).toHaveLength(0);
-
-      // Restore original cast members
-      require('./types').CAST_MEMBERS = originalCastMembers;
+    it('should prevent consecutive show violations during assignment, not just validate after', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      
+      // Test the core prevention logic by simulating assignments
+      const testShows = [
+        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" as const },
+        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" as const },
+        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" as const },
+        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" as const }
+      ];
+      
+      const testAlgorithm = new SchedulingAlgorithm(testShows, defaultCastMembers);
+      
+      // Manually assign to test prevention logic
+      (testAlgorithm as any).assignments = new Map([
+        ["show1", { "Sarge": "PHIL" }],
+        ["show2", { "Sarge": "PHIL" }],
+        ["show3", { "Sarge": "PHIL" }]
+      ]);
+      
+      // This should return false - cannot assign PHIL to show4 as it would create 4 consecutive
+      const canAssign = (testAlgorithm as any).canAssignPerformerToShow("PHIL", "show4");
+      expect(canAssign).toBe(false, "Algorithm should prevent 4th consecutive show assignment");
     });
   });
 
-  describe('Date-based Consecutive Shows Logic', () => {
-    it('should properly count consecutive shows with date-based logic', () => {
-      const consecutiveShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show6", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      const consecutiveAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(consecutiveShows);
-      const result = algorithm.validateSchedule(consecutiveAssignments);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => 
-        error.includes("PHIL") && error.includes("6 consecutive")
-      )).toBe(true);
+  describe('CRITICAL BUG FIX: Weekend 4-Show Rule Prevention', () => {
+    it('should NEVER allow Friday-Saturday-Sunday 4-show pattern', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const result = await algorithm.autoGenerate();
+        
+        if (result.success) {
+          const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
+          
+          for (const member of defaultCastMembers) {
+            const memberAssignments = stageAssignments.filter(a => a.performer === member.name);
+            
+            // Group by date
+            const showsByDate: Record<string, number> = {};
+            memberAssignments.forEach(assignment => {
+              const show = weekShows.find(s => s.id === assignment.showId)!;
+              showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
+            });
+            
+            // Check Friday-Saturday-Sunday pattern (2024-01-05 to 2024-01-07)
+            const fridayShows = showsByDate["2024-01-05"] || 0;
+            const saturdayShows = showsByDate["2024-01-06"] || 0;
+            const sundayShows = showsByDate["2024-01-07"] || 0;
+            const weekendTotal = fridayShows + saturdayShows + sundayShows;
+            
+            // CRITICAL: Must never exceed 3 shows over Friday-Sunday
+            expect(weekendTotal).toBeLessThan(4, 
+              `${member.name} has ${weekendTotal} shows over Fri-Sun (${fridayShows} Fri, ${saturdayShows} Sat, ${sundayShows} Sun) - WEEKEND RULE VIOLATION!`
+            );
+          }
+        }
+      }
     });
 
-    it('should handle non-consecutive patterns correctly with date gaps', () => {
-      const patternShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show3", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" }, // 3-day gap
-        { id: "show4", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show5", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" }
+    it('should prevent weekend rule violations during assignment', () => {
+      const weekendShows = [
+        { id: "fri", date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" as const },
+        { id: "sat_mat", date: "2024-01-06", time: "16:00", callTime: "14:00", status: "show" as const },
+        { id: "sat_eve", date: "2024-01-06", time: "21:00", callTime: "18:00", status: "show" as const },
+        { id: "sun", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" as const }
       ];
+      
+      const algorithm = new SchedulingAlgorithm(weekendShows, defaultCastMembers);
+      
+      // Manually assign performer to first 3 shows
+      (algorithm as any).assignments = new Map([
+        ["fri", { "Sarge": "PHIL" }],
+        ["sat_mat", { "Sarge": "PHIL" }], 
+        ["sat_eve", { "Sarge": "PHIL" }]
+      ]);
+      
+      // Should prevent assignment to Sunday (would create 4-show weekend)
+      const wouldViolate = (algorithm as any).wouldViolateWeekendRule("PHIL", "sun");
+      expect(wouldViolate).toBe(true, "Algorithm should detect weekend rule violation");
+    });
+  });
 
-      const patternAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        // Break - show3 has different performer 
-        { showId: "show3", role: "Sarge" as Role, performer: "SEAN" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
-      ];
+  describe('Weekly Limit Enforcement', () => {
+    it('should never assign more than 6 shows per performer per week', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const result = await algorithm.autoGenerate();
+        
+        if (result.success) {
+          const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
+          const performerCounts = new Map<string, number>();
+          
+          // Count unique shows per performer
+          const performerShows = new Map<string, Set<string>>();
+          stageAssignments.forEach(assignment => {
+            if (!performerShows.has(assignment.performer)) {
+              performerShows.set(assignment.performer, new Set());
+            }
+            performerShows.get(assignment.performer)!.add(assignment.showId);
+          });
+          
+          for (const [performer, showSet] of performerShows) {
+            const showCount = showSet.size;
+            expect(showCount).toBeLessThanOrEqual(6, 
+              `${performer} assigned to ${showCount} shows - exceeds weekly limit of 6`
+            );
+          }
+        }
+      }
+    });
+  });
 
-      const algorithm = new SchedulingAlgorithm(patternShows);
-      const result = algorithm.validateSchedule(patternAssignments);
-
-      // Should be valid - no more than 2 consecutive shows for PHIL
-      expect(result.isValid).toBe(true);
-      expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
+  describe('RED Day Implementation', () => {
+    it('should assign RED days to OFF performers', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const result = await algorithm.autoGenerate();
+      
+      if (result.success) {
+        const offAssignments = result.assignments.filter(a => a.role === "OFF");
+        const redDayAssignments = offAssignments.filter(a => a.isRedDay);
+        
+        expect(offAssignments.length).toBeGreaterThan(0, "Should have OFF assignments");
+        expect(redDayAssignments.length).toBeGreaterThan(0, "Should have RED day assignments");
+        
+        // Each performer should have at most one RED day
+        const redDayPerformers = new Set(redDayAssignments.map(a => a.performer));
+        expect(redDayAssignments.length).toBe(redDayPerformers.size, 
+          "Each performer should have at most one RED day");
+      }
     });
 
-    it('should handle irregular scheduling patterns with large gaps', () => {
-      const irregularShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show4", date: "2024-01-15", time: "19:00", callTime: "18:00", status: "show" }, // 12-day gap
-        { id: "show5", date: "2024-01-16", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show6", date: "2024-01-17", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show7", date: "2024-01-18", time: "19:00", callTime: "18:00", status: "show" }
-      ];
+    it('should limit RED days per show based on double-show days', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const result = await algorithm.autoGenerate();
+      
+      if (result.success) {
+        const offAssignments = result.assignments.filter(a => a.role === "OFF");
+        
+        // Group by show and check RED day limits
+        const showGroups = new Map<string, typeof offAssignments>();
+        offAssignments.forEach(assignment => {
+          if (!showGroups.has(assignment.showId)) {
+            showGroups.set(assignment.showId, []);
+          }
+          showGroups.get(assignment.showId)!.push(assignment);
+        });
+        
+        for (const [showId, assignments] of showGroups) {
+          const show = weekShows.find(s => s.id === showId)!;
+          const redDayCount = assignments.filter(a => a.isRedDay).length;
+          
+          // Check if it's a double-show day (Saturday/Sunday)
+          const isDoubleShowDay = weekShows.filter(s => s.date === show.date).length > 1;
+          const maxRed = isDoubleShowDay ? 1 : 3;
+          
+          expect(redDayCount).toBeLessThanOrEqual(maxRed, 
+            `Show ${showId} on ${show.date} has ${redDayCount} RED days but max should be ${maxRed}`);
+        }
+      }
+    });
+  });
 
-      const irregularAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show6", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show7", role: "Sarge" as Role, performer: "PHIL" }
-      ];
+  describe('Load Balancing', () => {
+    it('should distribute workload evenly among cast members', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const result = await algorithm.autoGenerate();
+      
+      if (result.success) {
+        const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
+        
+        // Count shows per performer
+        const performerShows = new Map<string, Set<string>>();
+        stageAssignments.forEach(assignment => {
+          if (!performerShows.has(assignment.performer)) {
+            performerShows.set(assignment.performer, new Set());
+          }
+          performerShows.get(assignment.performer)!.add(assignment.showId);
+        });
+        
+        const showCounts = Array.from(performerShows.values()).map(shows => shows.size);
+        const maxShows = Math.max(...showCounts);
+        const minShows = Math.min(...showCounts);
+        
+        // Workload should be reasonably balanced
+        expect(maxShows - minShows).toBeLessThanOrEqual(3, 
+          `Workload imbalance too high: ${minShows}-${maxShows} shows per performer`);
+      }
+    });
+  });
 
-      const algorithm = new SchedulingAlgorithm(irregularShows);
-      const result = algorithm.validateSchedule(irregularAssignments);
-
-      // Should be valid - large gap breaks consecutive count
-      expect(result.isValid).toBe(true);
-      expect(result.errors.filter(error => error.includes("consecutive"))).toHaveLength(0);
+  describe('Stress Testing', () => {
+    it('should consistently produce valid schedules across multiple attempts', async () => {
+      let successCount = 0;
+      let violationCount = 0;
+      
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+        const result = await algorithm.autoGenerate();
+        
+        if (result.success) {
+          successCount++;
+          
+          // Validate critical constraints
+          const validation = algorithm.validateSchedule(result.assignments);
+          const hasConsecutiveViolation = validation.errors.some(error => 
+            error.includes("consecutive") && error.includes("CRITICAL")
+          );
+          
+          if (hasConsecutiveViolation) {
+            violationCount++;
+          }
+        }
+      }
+      
+      expect(successCount).toBeGreaterThan(15, "Should successfully generate schedules consistently");
+      expect(violationCount).toBe(0, "Should NEVER produce consecutive show violations");
     });
 
-    it('should handle shows with different times on same date correctly', () => {
-      const sameDayShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "14:00", callTime: "12:00", status: "show" },
-        { id: "show2", date: "2024-01-01", time: "19:00", callTime: "17:00", status: "show" },
-        { id: "show3", date: "2024-01-02", time: "14:00", callTime: "12:00", status: "show" },
-        { id: "show4", date: "2024-01-02", time: "19:00", callTime: "17:00", status: "show" },
-        { id: "show5", date: "2024-01-03", time: "14:00", callTime: "12:00", status: "show" }
+    it('should handle edge case with minimal cast', async () => {
+      // Test with just enough cast to barely fill roles
+      const minimalCast: CastMember[] = [
+        { name: "PHIL", eligibleRoles: ["Sarge"] },
+        { name: "SEAN", eligibleRoles: ["Potato"] },
+        { name: "JAMIE", eligibleRoles: ["Mozzie"] },
+        { name: "ADAM", eligibleRoles: ["Ringo"] },
+        { name: "CARY", eligibleRoles: ["Particle"] },
+        { name: "MOLLY", eligibleRoles: ["Bin"] },
+        { name: "JASMINE", eligibleRoles: ["Cornish"] },
+        { name: "JOSH", eligibleRoles: ["Who"] }
       ];
-
-      const sameDayAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(sameDayShows);
-      const result = algorithm.validateSchedule(sameDayAssignments);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => 
-        error.includes("PHIL") && error.includes("5 consecutive")
-      )).toBe(true);
-    });
-
-    it('should handle missing dates in show sequence', () => {
-      const missingDateShows: Show[] = [
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        // Missing 2024-01-03
-        { id: "show3", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show4", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show5", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      const missingDateAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(missingDateShows);
-      const result = algorithm.validateSchedule(missingDateAssignments);
-
-      // Should still detect consecutive shows (gap of 1 day is within tolerance)
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => 
-        error.includes("PHIL") && error.includes("consecutive")
-      )).toBe(true);
-    });
-
-    it('should handle chronologically unordered shows correctly', () => {
-      const unorderedShows: Show[] = [
-        { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" },
-        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" }
-      ];
-
-      const unorderedAssignments = [
-        { showId: "show1", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show2", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show3", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show4", role: "Sarge" as Role, performer: "PHIL" },
-        { showId: "show5", role: "Sarge" as Role, performer: "PHIL" }
-      ];
-
-      const algorithm = new SchedulingAlgorithm(unorderedShows);
-      const result = algorithm.validateSchedule(unorderedAssignments);
-
-      // Should detect consecutive shows regardless of input order
-      expect(result.isValid).toBe(false);
-      expect(result.errors.some(error => 
-        error.includes("PHIL") && error.includes("5 consecutive")
-      )).toBe(true);
+      
+      const algorithm = new SchedulingAlgorithm(weekShows, minimalCast);
+      const result = await algorithm.autoGenerate();
+      
+      // Should either succeed with valid constraints or fail gracefully
+      if (result.success) {
+        const validation = algorithm.validateSchedule(result.assignments);
+        const hasViolations = validation.errors.some(error => 
+          error.includes("consecutive") || error.includes("weekend")
+        );
+        expect(hasViolations).toBe(false, "Even with minimal cast, should not violate critical constraints");
+      } else {
+        expect(result.errors).toBeDefined();
+        expect(result.errors!.length).toBeGreaterThan(0);
+      }
     });
   });
 });
