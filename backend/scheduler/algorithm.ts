@@ -134,8 +134,8 @@ export class SchedulingAlgorithm {
         currentConsecutive = 1;
       }
       
-      // HARD STOP: Never allow more than 6 consecutive shows
-      if (maxConsecutive > 6) {
+      // HARD STOP: Never allow more than 3 consecutive shows
+      if (maxConsecutive > 3) {
         return false;
       }
     }
@@ -143,45 +143,45 @@ export class SchedulingAlgorithm {
     return true;
   }
 
-  // CRITICAL FIX: Check for Sat-Sun double-double rule
-  private wouldViolateDoubleDoubleRule(performer: string, showId: string): boolean {
+  // CRITICAL FIX: Check weekend 4-show rule (Friday-Sunday pattern)
+  private wouldViolateWeekendRule(performer: string, showId: string): boolean {
     const allShows = this.getSortedActiveShows();
     const targetShow = allShows.find(s => s.id === showId);
     if (!targetShow) return false;
 
-    // Get all shows this performer is assigned to, including the potential new one
     const performerShows: Show[] = [targetShow];
     for (const [currentShowId, showAssignment] of this.assignments) {
-      if (Object.values(showAssignment).includes(performer)) {
-        const show = allShows.find(s => s.id === currentShowId);
-        if (show && show.id !== showId) {
-          performerShows.push(show);
+        if (Object.values(showAssignment).includes(performer)) {
+            const show = allShows.find(s => s.id === currentShowId);
+            if (show && show.id !== showId) {
+                performerShows.push(show);
+            }
         }
-      }
     }
 
-    // Group shows by date and count them
-    const showsByDate: Record<string, number> = {};
+    const showsByWeekend: Record<string, Show[]> = {};
+
     for (const show of performerShows) {
-      showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
+        const showDate = new Date(show.date + 'T12:00:00Z');
+        const dayOfWeek = showDate.getUTCDay(); // Sunday = 0, ..., Saturday = 6
+
+        if (dayOfWeek >= 5 || dayOfWeek === 0) { // Friday, Saturday, or Sunday
+            const mondayDate = new Date(showDate);
+            const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+            mondayDate.setUTCDate(mondayDate.getUTCDate() + offset);
+            const weekKey = mondayDate.toISOString().split('T')[0];
+
+            if (!showsByWeekend[weekKey]) {
+                showsByWeekend[weekKey] = [];
+            }
+            showsByWeekend[weekKey].push(show);
+        }
     }
 
-    // Find all dates where the performer has 2 or more shows
-    const doubleShowDates = Object.entries(showsByDate)
-      .filter(([_, count]) => count >= 2)
-      .map(([date, _]) => date);
-
-    // Check for consecutive Sat/Sun double shows
-    for (const dateStr of doubleShowDates) {
-      const date = new Date(dateStr + 'T12:00:00Z'); // Use midday UTC to avoid timezone shifts
-      if (date.getUTCDay() === 6) { // It's a Saturday
-        const nextDay = new Date(date);
-        nextDay.setUTCDate(date.getUTCDate() + 1);
-        const nextDayStr = nextDay.toISOString().split('T')[0];
-        if (doubleShowDates.includes(nextDayStr)) {
-          return true; // Found a Sat-Sun double-double
+    for (const weekKey in showsByWeekend) {
+        if (showsByWeekend[weekKey].length >= 4) {
+            return true;
         }
-      }
     }
 
     return false;
@@ -330,13 +330,13 @@ export class SchedulingAlgorithm {
             return false;
           }
           
-          // CHECK 2: Won't create excessive consecutive shows (max 6)
+          // CHECK 2: Won't create consecutive show violation (max 3)
           if (!this.canAssignPerformerToShow(member.name, showId)) {
             return false;
           }
           
-          // CHECK 3: Won't create double-double weekend violation
-          if (this.wouldViolateDoubleDoubleRule(member.name, showId)) {
+          // CHECK 3: Won't create weekend 4-show violation
+          if (this.wouldViolateWeekendRule(member.name, showId)) {
             return false;
           }
           
@@ -426,59 +426,73 @@ export class SchedulingAlgorithm {
 
   // Assign RED days to OFF performers
   private assignRedDays(assignments: Assignment[]): Assignment[] {
-    const sortedShows = this.getSortedActiveShows();
-    
-    // Create OFF assignments for performers not on stage
-    const finalAssignments = [...assignments];
-    const redDayCount: Record<string, boolean> = {};
-    
-    // Group shows by date to identify double-show days
+    const allPerformers = this.castMembers.map(m => m.name);
     const showsByDate: Record<string, Show[]> = {};
-    sortedShows.forEach(show => {
-      if (!showsByDate[show.date]) {
-        showsByDate[show.date] = [];
-      }
-      showsByDate[show.date].push(show);
+    this.shows.filter(s => s.status === 'show').forEach(show => {
+        if (!showsByDate[show.date]) showsByDate[show.date] = [];
+        showsByDate[show.date].push(show);
     });
 
-    // Sort dates: single-show days first for RED day priority
-    const sortedDates = Object.keys(showsByDate).sort((a, b) => {
-      const aDouble = showsByDate[a].length > 1;
-      const bDouble = showsByDate[b].length > 1;
-      if (aDouble !== bDouble) return aDouble ? 1 : -1;
-      return new Date(a).getTime() - new Date(b).getTime();
-    });
+    const performerFullDaysOff: Record<string, string[]> = {};
+    for (const performer of allPerformers) {
+        performerFullDaysOff[performer] = [];
+    }
 
-    // Assign OFF and RED days
-    sortedShows.forEach(show => {
-      const showAssignments = assignments.filter(a => a.showId === show.id);
-      const assignedPerformers = new Set(showAssignments.map(a => a.performer));
-      
-      const offPerformers = this.castMembers
-        .map(member => member.name)
-        .filter(name => !assignedPerformers.has(name));
+    // Step 1 & 2: Identify full days off for each performer
+    for (const date in showsByDate) {
+        const showsOnThisDate = showsByDate[date];
+        const showsOnThisDateIds = new Set(showsOnThisDate.map(s => s.id));
 
-      // Determine max RED performers for this show
-      const isDoubleShowDay = showsByDate[show.date].length > 1;
-      const maxRedPerShow = isDoubleShowDay ? 1 : 3; // Max 3 RED on single days, 1 on double
-      
-      let redAssigned = 0;
-      
-      offPerformers.forEach(performer => {
-        const isRedDay = !redDayCount[performer] && redAssigned < maxRedPerShow;
-        
-        finalAssignments.push({
-          showId: show.id,
-          role: "OFF",
-          performer: performer,
-          isRedDay: isRedDay
-        });
-        
-        if (isRedDay) {
-          redDayCount[performer] = true;
-          redAssigned++;
+        for (const performer of allPerformers) {
+            const performerShowsOnDate = assignments.filter(a => 
+                a.performer === performer && showsOnThisDateIds.has(a.showId)
+            );
+            // If performer has no assignments on this date, it's a full day off
+            if (performerShowsOnDate.length === 0) {
+                performerFullDaysOff[performer].push(date);
+            }
         }
-      });
+    }
+
+    // Step 3: Assign one RED day per performer
+    const performerRedDays: Record<string, string> = {};
+    for (const performer of allPerformers) {
+        const fullDaysOff = performerFullDaysOff[performer];
+        if (fullDaysOff.length > 0) {
+            // Prioritize single-show days (weekdays)
+            const sortedDaysOff = fullDaysOff.sort((a, b) => {
+                const showsOnA = showsByDate[a]?.length || 99;
+                const showsOnB = showsByDate[b]?.length || 99;
+                return showsOnA - showsOnB;
+            });
+            performerRedDays[performer] = sortedDaysOff[0];
+        }
+    }
+
+    // Step 4: Create final assignments including OFF and RED days
+    const finalAssignments: Assignment[] = [];
+    
+    // Add stage assignments
+    for (const assignment of assignments) {
+        if (assignment.role !== 'OFF') {
+            finalAssignments.push(assignment);
+        }
+    }
+
+    // Add OFF assignments
+    this.shows.filter(s => s.status === 'show').forEach(show => {
+        const performersOnShow = new Set(finalAssignments.filter(a => a.showId === show.id).map(a => a.performer));
+        const offPerformers = allPerformers.filter(p => !performersOnShow.has(p));
+
+        offPerformers.forEach(performer => {
+            const isRedDay = performerRedDays[performer] === show.date;
+            finalAssignments.push({
+                showId: show.id,
+                role: 'OFF',
+                performer: performer,
+                isRedDay: isRedDay
+            });
+        });
     });
 
     return finalAssignments;
@@ -602,7 +616,7 @@ export class SchedulingAlgorithm {
       if (!isConsecutive) {
         // End current sequence if it's significant
         const sequenceLength = i - currentSequenceStart;
-        if (sequenceLength > 1) { // Only care about sequences of 2 or more
+        if (sequenceLength > 3) {
           const startIndex = sortedIndexes[currentSequenceStart];
           const endIndex = sortedIndexes[i - 1];
           sequences.push({
@@ -620,7 +634,7 @@ export class SchedulingAlgorithm {
 
     // Handle final sequence
     const finalSequenceLength = sortedIndexes.length - currentSequenceStart;
-    if (finalSequenceLength > 1) {
+    if (finalSequenceLength > 3) {
       const startIndex = sortedIndexes[currentSequenceStart];
       const endIndex = sortedIndexes[sortedIndexes.length - 1];
       sequences.push({
@@ -736,48 +750,77 @@ export class SchedulingAlgorithm {
       }
     }
 
-    // Check for double-double weekend rule
-    for (const member of this.castMembers) {
-      const memberAssignments = assignments.filter(a => a.performer === member.name && a.role !== "OFF");
-      
-      const showsByDate: Record<string, number> = {};
-      for (const assignment of memberAssignments) {
-        const show = activeShows.find(s => s.id === assignment.showId);
-        if (show) {
-          showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
-        }
-      }
-
-      const doubleShowDates = Object.entries(showsByDate)
-        .filter(([_, count]) => count >= 2)
-        .map(([date, _]) => date);
-
-      for (const dateStr of doubleShowDates) {
-        const date = new Date(dateStr + 'T12:00:00Z'); // Use midday UTC to avoid timezone shifts
-        if (date.getUTCDay() === 6) { // Saturday
-          const nextDay = new Date(date);
-          nextDay.setUTCDate(date.getUTCDate() + 1);
-          const nextDayStr = nextDay.toISOString().split('T')[0];
-          if (doubleShowDates.includes(nextDayStr)) {
-            errors.push(`${member.name} works a double on Saturday and Sunday (${dateStr} and ${nextDayStr}) - CRITICAL VIOLATION.`);
-          }
-        }
-      }
-    }
-
-    // Use optimized consecutive shows analysis
+    // CRITICAL: Use optimized consecutive shows analysis
     const performerData = this.analyzeConsecutiveShows(assignments);
     for (const [memberName, data] of performerData) {
       for (const sequence of data.sequences) {
-        if (sequence.count > 7) { // 8+ is a critical error
+        if (sequence.count > 3) {
           const suggestions = this.getConsecutiveShowSuggestions(memberName, sequence, assignments, activeShows);
           errors.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - CRITICAL VIOLATION. ${suggestions}`);
-        } else if (sequence.count > 6) { // 7 is a warning
-          const suggestions = this.getConsecutiveShowSuggestions(memberName, sequence, assignments, activeShows);
-          warnings.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - exceeds recommended maximum of 6. ${suggestions}`);
         }
       }
     }
+
+    // Weekend Rule Validation
+    for (const member of this.castMembers) {
+        const performerShows = assignments
+            .filter(a => a.performer === member.name && a.role !== 'OFF')
+            .map(a => activeShows.find(s => s.id === a.showId))
+            .filter((s): s is Show => s !== undefined);
+
+        const showsByWeekend: Record<string, Show[]> = {};
+        for (const show of performerShows) {
+            const showDate = new Date(show.date + 'T12:00:00Z');
+            const dayOfWeek = showDate.getUTCDay();
+            if (dayOfWeek >= 5 || dayOfWeek === 0) { // Fri, Sat, Sun
+                const mondayDate = new Date(showDate);
+                const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                mondayDate.setUTCDate(mondayDate.getUTCDate() + offset);
+                const weekKey = mondayDate.toISOString().split('T')[0];
+                if (!showsByWeekend[weekKey]) showsByWeekend[weekKey] = [];
+                showsByWeekend[weekKey].push(show);
+            }
+        }
+
+        for (const weekKey in showsByWeekend) {
+            if (showsByWeekend[weekKey].length >= 4) {
+                errors.push(`${member.name} has ${showsByWeekend[weekKey].length} shows over a weekend (Fri-Sun) - exceeds maximum of 3.`);
+            }
+        }
+    }
+
+    // RED Day Validation
+    const performerRedDays: Record<string, string[]> = {};
+    this.castMembers.forEach(m => performerRedDays[m.name] = []);
+
+    const offAssignments = assignments.filter(a => a.role === 'OFF' && a.isRedDay);
+    offAssignments.forEach(a => {
+        const show = activeShows.find(s => s.id === a.showId);
+        if (show) {
+            if (!performerRedDays[a.performer].includes(show.date)) {
+                performerRedDays[a.performer].push(show.date);
+            }
+        }
+    });
+
+    for (const performer in performerRedDays) {
+        if (performerRedDays[performer].length > 1) {
+            errors.push(`${performer} has more than one RED day assigned.`);
+        }
+        if (this.castMembers.some(m => m.name === performer) && performerRedDays[performer].length === 0) {
+            warnings.push(`${performer} does not have a RED day assigned.`);
+        }
+
+        for (const redDate of performerRedDays[performer]) {
+            const showsOnRedDate = activeShows.filter(s => s.date === redDate);
+            const assignmentsOnRedDate = assignments.filter(a => a.performer === performer && showsOnRedDate.some(s => s.id === a.showId));
+            const isFullDayOff = assignmentsOnRedDate.every(a => a.role === 'OFF');
+            if (!isFullDayOff) {
+                errors.push(`${performer} has a RED day on ${redDate} but is also assigned to a role on that day.`);
+            }
+        }
+    }
+
 
     // Check show distribution with specific suggestions
     const showCounts = this.getShowCounts(assignments, activeShows);

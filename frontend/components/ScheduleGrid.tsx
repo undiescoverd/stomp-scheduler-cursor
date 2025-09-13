@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,34 +53,34 @@ export function ScheduleGrid({
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Filter out removed shows (we'll use status management instead of actual removal)
   const visibleShows = shows.filter(show => show.status !== 'removed');
 
-  // Group assignments by show and role for easy lookup
-  const assignmentMap = new Map<string, string>();
-  const offAssignmentMap = new Map<string, Assignment>();
-  
-  assignments.forEach(assignment => {
-    if (assignment.role === "OFF") {
-      const key = `${assignment.showId}-${assignment.performer}`;
-      offAssignmentMap.set(key, assignment);
-    } else {
-      const key = `${assignment.showId}-${assignment.role}`;
-      assignmentMap.set(key, assignment.performer);
-    }
-  });
+  const { assignmentMap, performerRedDays } = useMemo(() => {
+    const assignmentMap = new Map<string, string>();
+    const performerRedDays = new Map<string, string>();
+    
+    assignments.forEach(assignment => {
+      if (assignment.role !== "OFF") {
+        const key = `${assignment.showId}-${assignment.role}`;
+        assignmentMap.set(key, assignment.performer);
+      } else if (assignment.isRedDay) {
+        const show = shows.find(s => s.id === assignment.showId);
+        if (show && !performerRedDays.has(assignment.performer)) {
+          performerRedDays.set(assignment.performer, show.date);
+        }
+      }
+    });
+    return { assignmentMap, performerRedDays };
+  }, [assignments, shows]);
 
-  // Get assignment for a specific show/role
   const getAssignment = (showId: string, role: Role): string => {
     return assignmentMap.get(`${showId}-${role}`) || '';
   };
 
-  // Get eligible cast members for a role
   const getEligibleCast = (role: Role): CastMember[] => {
     return castMembers.filter(member => member.eligibleRoles.includes(role));
   };
 
-  // Check for conflicts (same performer assigned multiple roles in same show)
   const getShowConflicts = (showId: string): string[] => {
     const showAssignments = assignments.filter(a => a.showId === showId && a.role !== "OFF");
     const performers = showAssignments.map(a => a.performer);
@@ -90,11 +90,10 @@ export function ScheduleGrid({
     return [...new Set(duplicates)];
   };
 
-  // Get performers who are OFF for each show
-  const getOffPerformers = (showId: string): Array<{performer: string, isRedDay: boolean}> => {
+  const getOffPerformers = (showId: string): string[] => {
     const show = visibleShows.find(s => s.id === showId);
     if (show && show.status !== 'show') {
-      return []; // No OFF list for travel/day off days
+      return [];
     }
 
     const assignedPerformers = new Set(
@@ -106,24 +105,15 @@ export function ScheduleGrid({
     
     return castMembers
       .map(member => member.name)
-      .filter(name => !assignedPerformers.has(name))
-      .map(performer => {
-        const offAssignment = offAssignmentMap.get(`${showId}-${performer}`);
-        return {
-          performer,
-          isRedDay: offAssignment?.isRedDay || false
-        };
-      });
+      .filter(name => !assignedPerformers.has(name));
   };
 
-  // Check if a performer/role combination has conflicts
   const hasConflict = (showId: string, role: Role, performer: string): boolean => {
     if (!performer) return false;
     const conflicts = getShowConflicts(showId);
     return conflicts.includes(performer);
   };
 
-  // Get week number from first show
   const getWeekFromShows = (): string => {
     if (visibleShows.length === 0) return '';
     
@@ -138,12 +128,10 @@ export function ScheduleGrid({
     }
   };
 
-  // Handle day status change with confirmation and removal
   const handleDayStatusChange = (showId: string, newStatus: string) => {
     const show = visibleShows.find(s => s.id === showId);
     if (!show) return;
 
-    // Handle removal
     if (newStatus === 'remove') {
       if (confirm('Are you sure you want to remove this day from the schedule?')) {
         onRemoveShow(showId);
@@ -162,7 +150,6 @@ export function ScheduleGrid({
     }
   };
 
-  // Handle editing inline
   const handleStartEdit = (cellId: string) => {
     setEditingCell(cellId);
   };
@@ -176,8 +163,7 @@ export function ScheduleGrid({
     setEditingCell(null);
   };
 
-  // Handle RED day toggle
-  const handleToggleRedDay = async (showId: string, performer: string) => {
+  const handleToggleRedDay = async (date: string, performer: string) => {
     if (!scheduleId) {
       toast({
         title: "Error",
@@ -187,36 +173,46 @@ export function ScheduleGrid({
       return;
     }
 
+    const showsOnDate = shows.filter(s => s.date === date && s.status === 'show');
+    const performerAssignmentsOnDate = assignments.filter(a => 
+        a.performer === performer && showsOnDate.some(s => s.id === a.showId)
+    );
+    if (performerAssignmentsOnDate.length > 0 && !performerAssignmentsOnDate.every(a => a.role === 'OFF')) {
+        toast({
+            title: "Invalid RED Day",
+            description: `${performer} must be OFF for all shows on this day to set it as a RED day.`,
+            variant: "destructive"
+        });
+        return;
+    }
+
     try {
       const response = await backend.scheduler.toggleRedDay({
         id: scheduleId,
-        showId,
+        date,
         performer
       });
 
-      // Update local assignments
       if (onAssignmentUpdate) {
         onAssignmentUpdate(response.assignments);
       }
 
-      const offAssignment = offAssignmentMap.get(`${showId}-${performer}`);
-      const isNowRed = !offAssignment?.isRedDay;
+      const isNowRed = response.assignments.some(a => a.performer === performer && a.isRedDay && shows.find(s => s.id === a.showId)?.date === date);
       
       toast({
         title: "Success",
-        description: `${performer} is now ${isNowRed ? 'RED' : 'regular OFF'} on this show`,
+        description: `${performer} is now ${isNowRed ? 'RED' : 'regular OFF'} for ${formatDate(date)}`,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to toggle RED day:', error);
       toast({
         title: "Error",
-        description: "Failed to toggle RED day status",
+        description: error.message || "Failed to toggle RED day status",
         variant: "destructive"
       });
     }
   };
 
-  // Generate a hard reset
   const handleHardReset = () => {
     if (confirm('This will completely clear all assignments and generate a fresh schedule. This action cannot be undone. Continue?')) {
       onClearAll();
@@ -226,7 +222,6 @@ export function ScheduleGrid({
     }
   };
 
-  // Render editable cell
   const renderEditableCell = (showId: string, field: 'date' | 'time' | 'callTime', value: string, displayValue: string) => {
     const cellId = `${showId}-${field}`;
     const isEditing = editingCell === cellId;
@@ -234,49 +229,20 @@ export function ScheduleGrid({
     if (isEditing) {
       return (
         <div className="flex items-center space-x-1">
-          {field === 'callTime' ? (
-            <Select
-              defaultValue={value === 'TBC' ? 'TBC' : value}
-              onValueChange={(newValue) => {
-                if (newValue === 'TBC') {
-                  handleSaveEdit(showId, field, 'TBC');
-                } else if (newValue === 'custom') {
-                  // Stay in editing mode for custom time input
-                  return;
-                } else {
-                  handleSaveEdit(showId, field, newValue);
-                }
-              }}
-            >
-              <SelectTrigger className="text-xs h-6 w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TBC">TBC</SelectItem>
-                <SelectItem value="custom">Custom Time</SelectItem>
-                <SelectItem value="14:00">2:00 PM</SelectItem>
-                <SelectItem value="14:30">2:30 PM</SelectItem>
-                <SelectItem value="15:00">3:00 PM</SelectItem>
-                <SelectItem value="18:00">6:00 PM</SelectItem>
-                <SelectItem value="19:00">7:00 PM</SelectItem>
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              type={field === 'date' ? 'date' : 'time'}
-              defaultValue={value}
-              className="text-xs h-6 w-full"
-              autoFocus
-              onBlur={(e) => handleSaveEdit(showId, field, e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleSaveEdit(showId, field, e.currentTarget.value);
-                } else if (e.key === 'Escape') {
-                  handleCancelEdit();
-                }
-              }}
-            />
-          )}
+          <Input
+            type={field === 'date' ? 'date' : 'time'}
+            defaultValue={value}
+            className="text-xs h-6 w-full"
+            autoFocus
+            onBlur={(e) => handleSaveEdit(showId, field, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSaveEdit(showId, field, e.currentTarget.value);
+              } else if (e.key === 'Escape') {
+                handleCancelEdit();
+              }
+            }}
+          />
         </div>
       );
     }
@@ -292,7 +258,6 @@ export function ScheduleGrid({
     );
   };
 
-  // Render special day content
   const renderSpecialDayContent = (show: Show) => {
     if (show.status === 'travel') {
       return (
@@ -312,7 +277,6 @@ export function ScheduleGrid({
     return null;
   };
 
-  // Format call time display
   const formatCallTimeDisplay = (callTime: string): string => {
     if (callTime === 'TBC') return 'TBC';
     return formatTime(callTime);
@@ -387,43 +351,28 @@ export function ScheduleGrid({
       <CardContent>
         <div className="w-full overflow-x-auto">
           <div className="min-w-fit">
-            {/* Main Header */}
             <div className="text-center font-bold text-lg mb-4">
               STOMP - {location} - Week {getWeekFromShows()}
             </div>
             
             <div className="border-t-2 border-black mb-4"></div>
 
-            {/* Schedule Table */}
             <table className="w-full border-collapse border border-gray-300">
               <thead>
-                {/* Row 1: Date Headers */}
                 <tr>
                   <th className="border border-gray-300 p-2 bg-gray-50 w-24 text-left font-medium"></th>
                   {visibleShows.map((show) => (
                     <th key={`date-${show.id}`} className="border border-gray-300 p-2 bg-gray-50 text-center font-medium min-w-24">
-                      {renderEditableCell(
-                        show.id, 
-                        'date', 
-                        show.date,
-                        formatDate(show.date)
-                      )}
+                      {renderEditableCell(show.id, 'date', show.date, formatDate(show.date))}
                     </th>
                   ))}
                 </tr>
-
-                {/* Row 2: Status Dropdowns */}
                 <tr>
                   <th className="border border-gray-300 p-2 bg-gray-50 text-left font-medium text-sm">Status</th>
                   {visibleShows.map((show) => (
                     <th key={`status-${show.id}`} className="border border-gray-300 p-1 bg-gray-50">
-                      <Select
-                        value={show.status}
-                        onValueChange={(value) => handleDayStatusChange(show.id, value)}
-                      >
-                        <SelectTrigger className="text-xs h-7 w-full">
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Select value={show.status} onValueChange={(value) => handleDayStatusChange(show.id, value)}>
+                        <SelectTrigger className="text-xs h-7 w-full"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="show">Show</SelectItem>
                           <SelectItem value="travel">Travel Day</SelectItem>
@@ -434,84 +383,45 @@ export function ScheduleGrid({
                     </th>
                   ))}
                 </tr>
-
-                {/* Row 3: Show Times */}
                 <tr>
                   <th className="border border-gray-300 p-2 bg-gray-50 text-left font-medium text-sm">Show</th>
                   {visibleShows.map((show) => (
                     <th key={`show-${show.id}`} className="border border-gray-300 p-2 bg-gray-50 text-center text-xs font-medium">
-                      {show.status === 'show' ? renderEditableCell(
-                        show.id,
-                        'time',
-                        show.time,
-                        formatTime(show.time)
-                      ) : '-'}
+                      {show.status === 'show' ? renderEditableCell(show.id, 'time', show.time, formatTime(show.time)) : '-'}
                     </th>
                   ))}
                 </tr>
-
-                {/* Row 4: Call Times */}
                 <tr>
                   <th className="border border-gray-300 p-2 bg-gray-50 text-left font-medium text-sm">Call</th>
                   {visibleShows.map((show) => (
                     <th key={`call-${show.id}`} className="border border-gray-300 p-2 bg-gray-50 text-center text-xs text-gray-600">
-                      {show.status === 'show' ? renderEditableCell(
-                        show.id,
-                        'callTime',
-                        show.callTime,
-                        formatCallTimeDisplay(show.callTime)
-                      ) : '-'}
+                      {show.status === 'show' ? renderEditableCell(show.id, 'callTime', show.callTime, formatCallTimeDisplay(show.callTime)) : '-'}
                     </th>
                   ))}
                 </tr>
               </thead>
-
               <tbody>
-                {/* Separator Row */}
-                <tr>
-                  <td colSpan={visibleShows.length + 1} className="border-t-2 border-black h-1 p-0"></td>
-                </tr>
-
-                {/* Role Assignment Rows */}
+                <tr><td colSpan={visibleShows.length + 1} className="border-t-2 border-black h-1 p-0"></td></tr>
                 {roles.map((role) => (
                   <tr key={role}>
-                    <td className="border border-gray-300 p-2 bg-gray-50 font-medium text-sm">
-                      {role}
-                    </td>
+                    <td className="border border-gray-300 p-2 bg-gray-50 font-medium text-sm">{role}</td>
                     {visibleShows.map((show) => {
                       if (show.status !== 'show') {
-                        return (
-                          <td key={`${role}-${show.id}`} className="border border-gray-300 p-1 text-center">
-                            {renderSpecialDayContent(show)}
-                          </td>
-                        );
+                        return <td key={`${role}-${show.id}`} className="border border-gray-300 p-1 text-center">{renderSpecialDayContent(show)}</td>;
                       }
-
                       const currentAssignment = getAssignment(show.id, role);
                       const hasError = hasConflict(show.id, role, currentAssignment);
                       const eligibleCast = getEligibleCast(role);
-                      
                       return (
                         <td key={`${role}-${show.id}`} className="border border-gray-300 p-1">
-                          <Select
-                            value={currentAssignment || "none"}
-                            onValueChange={(value) => onAssignmentChange(show.id, role, value === "none" ? "" : value)}
-                          >
-                            <SelectTrigger 
-                              className={`text-xs h-8 w-full ${hasError ? 'border-red-500 bg-red-50' : ''}`}
-                            >
+                          <Select value={currentAssignment || "none"} onValueChange={(value) => onAssignmentChange(show.id, role, value === "none" ? "" : value)}>
+                            <SelectTrigger className={`text-xs h-8 w-full ${hasError ? 'border-red-500 bg-red-50' : ''}`}>
                               <SelectValue placeholder="Select..." />
-                              {hasError && (
-                                <AlertTriangle className="h-3 w-3 text-red-500 ml-1 flex-shrink-0" />
-                              )}
+                              {hasError && <AlertTriangle className="h-3 w-3 text-red-500 ml-1 flex-shrink-0" />}
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="none">None</SelectItem>
-                              {eligibleCast.map((member) => (
-                                <SelectItem key={member.name} value={member.name}>
-                                  {member.name}
-                                </SelectItem>
-                              ))}
+                              {eligibleCast.map((member) => (<SelectItem key={member.name} value={member.name}>{member.name}</SelectItem>))}
                             </SelectContent>
                           </Select>
                         </td>
@@ -519,68 +429,43 @@ export function ScheduleGrid({
                     })}
                   </tr>
                 ))}
-
-                {/* Separator Row for OFF Section */}
                 {assignments.length > 0 && (
-                  <tr>
-                    <td colSpan={visibleShows.length + 1} className="border-t-2 border-black h-1 p-0"></td>
-                  </tr>
+                  <tr><td colSpan={visibleShows.length + 1} className="border-t-2 border-black h-1 p-0"></td></tr>
                 )}
-
-                {/* OFF Section with RED day support */}
                 {assignments.length > 0 && (() => {
                   const activeShows = visibleShows.filter(show => show.status === 'show');
-                  const maxOffCount = Math.max(...activeShows.map(show => getOffPerformers(show.id).length), 1);
+                  const maxOffCount = Math.max(...activeShows.map(show => getOffPerformers(show.id).length), 0);
+                  if (maxOffCount === 0) return null;
                   
                   return Array.from({ length: maxOffCount }, (_, index) => (
                     <tr key={`off-row-${index}`}>
-                      <td className="border border-gray-300 p-2 bg-gray-50 font-medium text-sm">
-                        {index === 0 ? 'OFF' : ''}
-                      </td>
+                      <td className="border border-gray-300 p-2 bg-gray-50 font-medium text-sm">{index === 0 ? 'OFF' : ''}</td>
                       {visibleShows.map((show) => {
                         if (show.status !== 'show') {
                           return (
                             <td key={`off-${show.id}-${index}`} className="border border-gray-300 p-2 text-center">
-                              <div className="text-xs bg-gray-100 rounded h-6 flex items-center justify-center">
-                                <span className="text-gray-500 italic">N/A</span>
-                              </div>
+                              <div className="text-xs bg-gray-100 rounded h-6 flex items-center justify-center"><span className="text-gray-500 italic">N/A</span></div>
                             </td>
                           );
                         }
-
                         const offPerformers = getOffPerformers(show.id);
-                        const performerData = offPerformers[index];
-                        
-                        if (!performerData) {
-                          return (
-                            <td key={`off-${show.id}-${index}`} className="border border-gray-300 p-2 text-center">
-                              <div className="text-xs bg-gray-50 rounded h-6 flex items-center justify-center">
-                                <span className="text-gray-700"></span>
-                              </div>
-                            </td>
-                          );
+                        const performer = offPerformers[index];
+                        if (!performer) {
+                          return <td key={`off-${show.id}-${index}`} className="border border-gray-300 p-2"></td>;
                         }
-                        
+                        const isRedDay = performerRedDays.get(performer) === show.date;
                         return (
                           <td key={`off-${show.id}-${index}`} className="border border-gray-300 p-1 text-center">
                             <button
-                              onClick={() => handleToggleRedDay(show.id, performerData.performer)}
+                              onClick={() => handleToggleRedDay(show.date, performer)}
                               disabled={!scheduleId}
                               className={`text-xs rounded h-6 w-full flex items-center justify-center transition-colors hover:bg-opacity-80 ${
-                                performerData.isRedDay 
-                                  ? 'bg-red-100 text-red-700 font-bold hover:bg-red-200' 
-                                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                                isRedDay ? 'bg-red-100 text-red-700 font-bold hover:bg-red-200' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                               }`}
-                              title={
-                                performerData.isRedDay 
-                                  ? 'RED Day - Not on call (click to toggle)' 
-                                  : 'Regular OFF - On call (click to toggle)'
-                              }
+                              title={isRedDay ? 'RED Day - Not on call for entire day' : 'Regular OFF - On call'}
                             >
-                              <span>{performerData.performer}</span>
-                              {performerData.isRedDay && (
-                                <span className="ml-1 text-red-600 font-bold text-xs">(R)</span>
-                              )}
+                              <span>{performer}</span>
+                              {isRedDay && <span className="ml-1 text-red-600 font-bold text-xs">(R)</span>}
                             </button>
                           </td>
                         );
@@ -590,9 +475,7 @@ export function ScheduleGrid({
                 })()}
               </tbody>
             </table>
-
-            {/* RED Day Legend */}
-            {assignments.some(a => a.isRedDay) && (
+            {performerRedDays.size > 0 && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <div className="flex items-center space-x-2 text-sm">
                   <div className="w-4 h-4 bg-red-100 border border-red-300 rounded flex items-center justify-center">
