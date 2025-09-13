@@ -36,8 +36,8 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     ];
   });
 
-  describe('CRITICAL BUG FIX: Consecutive Show Prevention', () => {
-    it('should NEVER allow more than 3 consecutive shows', async () => {
+  describe('Consecutive Show Rule', () => {
+    it('should not allow more than 6 consecutive shows', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
       
       // Run multiple attempts to ensure consistency
@@ -52,8 +52,11 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
             const memberShows = stageAssignments
               .filter(a => a.performer === member.name)
               .map(a => weekShows.find(s => s.id === a.showId)!)
+              .filter(Boolean) // Filter out undefined shows
               .sort((a, b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime());
             
+            if (memberShows.length === 0) continue;
+
             // Check consecutive sequences
             let maxConsecutive = 1;
             let currentConsecutive = 1;
@@ -71,24 +74,23 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
               }
             }
             
-            // CRITICAL: Must never exceed 3 consecutive shows
-            expect(maxConsecutive).toBeLessThanOrEqual(3, 
-              `${member.name} has ${maxConsecutive} consecutive shows - CRITICAL VIOLATION! Shows: ${memberShows.map(s => `${s.date} ${s.time}`).join(', ')}`
+            expect(maxConsecutive).toBeLessThanOrEqual(6, 
+              `${member.name} has ${maxConsecutive} consecutive shows - VIOLATION! Shows: ${memberShows.map(s => `${s.date} ${s.time}`).join(', ')}`
             );
           }
         }
       }
     });
 
-    it('should prevent consecutive show violations during assignment, not just validate after', () => {
-      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
-      
-      // Test the core prevention logic by simulating assignments
+    it('should prevent 7th consecutive show violation during assignment', () => {
       const testShows = [
         { id: "show1", date: "2024-01-01", time: "19:00", callTime: "18:00", status: "show" as const },
         { id: "show2", date: "2024-01-02", time: "19:00", callTime: "18:00", status: "show" as const },
         { id: "show3", date: "2024-01-03", time: "19:00", callTime: "18:00", status: "show" as const },
-        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" as const }
+        { id: "show4", date: "2024-01-04", time: "19:00", callTime: "18:00", status: "show" as const },
+        { id: "show5", date: "2024-01-05", time: "19:00", callTime: "18:00", status: "show" as const },
+        { id: "show6", date: "2024-01-06", time: "19:00", callTime: "18:00", status: "show" as const },
+        { id: "show7", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" as const }
       ];
       
       const testAlgorithm = new SchedulingAlgorithm(testShows, defaultCastMembers);
@@ -97,17 +99,20 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
       (testAlgorithm as any).assignments = new Map([
         ["show1", { "Sarge": "PHIL" }],
         ["show2", { "Sarge": "PHIL" }],
-        ["show3", { "Sarge": "PHIL" }]
+        ["show3", { "Sarge": "PHIL" }],
+        ["show4", { "Sarge": "PHIL" }],
+        ["show5", { "Sarge": "PHIL" }],
+        ["show6", { "Sarge": "PHIL" }]
       ]);
       
-      // This should return false - cannot assign PHIL to show4 as it would create 4 consecutive
-      const canAssign = (testAlgorithm as any).canAssignPerformerToShow("PHIL", "show4");
-      expect(canAssign).toBe(false, "Algorithm should prevent 4th consecutive show assignment");
+      // This should return false - cannot assign PHIL to show7 as it would create 7 consecutive
+      const canAssign = (testAlgorithm as any).canAssignPerformerToShow("PHIL", "show7");
+      expect(canAssign).toBe(false, "Algorithm should prevent 7th consecutive show assignment");
     });
   });
 
-  describe('CRITICAL BUG FIX: Weekend 4-Show Rule Prevention', () => {
-    it('should NEVER allow Friday-Saturday-Sunday 4-show pattern', async () => {
+  describe('CRITICAL BUG FIX: Weekend Double-Double Rule', () => {
+    it('should NEVER allow a performer to work a double on Saturday and Sunday of the same weekend', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
       
       for (let attempt = 0; attempt < 10; attempt++) {
@@ -119,48 +124,47 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
           for (const member of defaultCastMembers) {
             const memberAssignments = stageAssignments.filter(a => a.performer === member.name);
             
-            // Group by date
             const showsByDate: Record<string, number> = {};
             memberAssignments.forEach(assignment => {
               const show = weekShows.find(s => s.id === assignment.showId)!;
-              showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
+              if (show) {
+                showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
+              }
             });
             
-            // Check Friday-Saturday-Sunday pattern (2024-01-05 to 2024-01-07)
-            const fridayShows = showsByDate["2024-01-05"] || 0;
             const saturdayShows = showsByDate["2024-01-06"] || 0;
             const sundayShows = showsByDate["2024-01-07"] || 0;
-            const weekendTotal = fridayShows + saturdayShows + sundayShows;
             
-            // CRITICAL: Must never exceed 3 shows over Friday-Sunday
-            expect(weekendTotal).toBeLessThan(4, 
-              `${member.name} has ${weekendTotal} shows over Fri-Sun (${fridayShows} Fri, ${saturdayShows} Sat, ${sundayShows} Sun) - WEEKEND RULE VIOLATION!`
+            const isDoubleDouble = saturdayShows >= 2 && sundayShows >= 2;
+            
+            expect(isDoubleDouble).toBe(false, 
+              `${member.name} has a Sat/Sun double-double - CRITICAL VIOLATION!`
             );
           }
         }
       }
     });
 
-    it('should prevent weekend rule violations during assignment', () => {
+    it('should prevent weekend double-double rule violations during assignment', () => {
       const weekendShows = [
-        { id: "fri", date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" as const },
         { id: "sat_mat", date: "2024-01-06", time: "16:00", callTime: "14:00", status: "show" as const },
         { id: "sat_eve", date: "2024-01-06", time: "21:00", callTime: "18:00", status: "show" as const },
-        { id: "sun", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" as const }
+        { id: "sun_mat", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" as const },
+        { id: "sun_eve", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" as const }
       ];
       
       const algorithm = new SchedulingAlgorithm(weekendShows, defaultCastMembers);
       
-      // Manually assign performer to first 3 shows
+      // Manually assign performer to Sat double and one Sun show
       (algorithm as any).assignments = new Map([
-        ["fri", { "Sarge": "PHIL" }],
-        ["sat_mat", { "Sarge": "PHIL" }], 
-        ["sat_eve", { "Sarge": "PHIL" }]
+        ["sat_mat", { "Sarge": "PHIL" }],
+        ["sat_eve", { "Sarge": "PHIL" }], 
+        ["sun_mat", { "Sarge": "PHIL" }]
       ]);
       
-      // Should prevent assignment to Sunday (would create 4-show weekend)
-      const wouldViolate = (algorithm as any).wouldViolateWeekendRule("PHIL", "sun");
-      expect(wouldViolate).toBe(true, "Algorithm should detect weekend rule violation");
+      // Should prevent assignment to Sunday evening (would create double-double)
+      const wouldViolate = (algorithm as any).wouldViolateDoubleDoubleRule("PHIL", "sun_eve");
+      expect(wouldViolate).toBe(true, "Algorithm should detect weekend double-double rule violation");
     });
   });
 
@@ -173,7 +177,6 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
         
         if (result.success) {
           const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
-          const performerCounts = new Map<string, number>();
           
           // Count unique shows per performer
           const performerShows = new Map<string, Set<string>>();
@@ -287,18 +290,18 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
           
           // Validate critical constraints
           const validation = algorithm.validateSchedule(result.assignments);
-          const hasConsecutiveViolation = validation.errors.some(error => 
-            error.includes("consecutive") && error.includes("CRITICAL")
+          const hasCriticalViolation = validation.errors.some(error => 
+            error.includes("CRITICAL")
           );
           
-          if (hasConsecutiveViolation) {
+          if (hasCriticalViolation) {
             violationCount++;
           }
         }
       }
       
       expect(successCount).toBeGreaterThan(15, "Should successfully generate schedules consistently");
-      expect(violationCount).toBe(0, "Should NEVER produce consecutive show violations");
+      expect(violationCount).toBe(0, "Should NEVER produce critical violations");
     });
 
     it('should handle edge case with minimal cast', async () => {
@@ -321,7 +324,7 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
       if (result.success) {
         const validation = algorithm.validateSchedule(result.assignments);
         const hasViolations = validation.errors.some(error => 
-          error.includes("consecutive") || error.includes("weekend")
+          error.includes("CRITICAL")
         );
         expect(hasViolations).toBe(false, "Even with minimal cast, should not violate critical constraints");
       } else {

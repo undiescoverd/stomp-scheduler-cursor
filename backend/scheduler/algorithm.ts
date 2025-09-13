@@ -91,7 +91,7 @@ export class SchedulingAlgorithm {
     return this._showIndexMap;
   }
 
-  // Check if assigning performer to show would violate consecutive show rule
+  // CRITICAL FIX: Check if assigning performer to show would violate consecutive show rule
   private canAssignPerformerToShow(performer: string, showId: string): boolean {
     const sortedShows = this.getSortedActiveShows();
     const showIndexMap = this.getShowIndexMap();
@@ -134,8 +134,8 @@ export class SchedulingAlgorithm {
         currentConsecutive = 1;
       }
       
-      // Allow up to 3 consecutive shows (was causing the blocking)
-      if (maxConsecutive > 3) {
+      // HARD STOP: Never allow more than 6 consecutive shows
+      if (maxConsecutive > 6) {
         return false;
       }
     }
@@ -143,64 +143,47 @@ export class SchedulingAlgorithm {
     return true;
   }
 
-  // Check weekend 4-show rule (Friday-Sunday pattern)
-  private wouldViolateWeekendRule(performer: string, showId: string): boolean {
-    const sortedShows = this.getSortedActiveShows();
-    const targetShow = sortedShows.find(s => s.id === showId);
+  // CRITICAL FIX: Check for Sat-Sun double-double rule
+  private wouldViolateDoubleDoubleRule(performer: string, showId: string): boolean {
+    const allShows = this.getSortedActiveShows();
+    const targetShow = allShows.find(s => s.id === showId);
     if (!targetShow) return false;
 
-    // Get performer's current shows
-    const performerShows: Show[] = [];
+    // Get all shows this performer is assigned to, including the potential new one
+    const performerShows: Show[] = [targetShow];
     for (const [currentShowId, showAssignment] of this.assignments) {
-      for (const [role, assignedPerformer] of Object.entries(showAssignment)) {
-        if (assignedPerformer === performer && role !== "OFF") {
-          const show = sortedShows.find(s => s.id === currentShowId);
-          if (show) {
-            performerShows.push(show);
-          }
-          break;
+      if (Object.values(showAssignment).includes(performer)) {
+        const show = allShows.find(s => s.id === currentShowId);
+        if (show && show.id !== showId) {
+          performerShows.push(show);
         }
       }
     }
 
-    // Add the potential new show
-    const allShows = [...performerShows, targetShow];
-    
-    // Group shows by date
-    const showsByDate: Record<string, Show[]> = {};
-    allShows.forEach(show => {
-      if (!showsByDate[show.date]) {
-        showsByDate[show.date] = [];
-      }
-      showsByDate[show.date].push(show);
-    });
+    // Group shows by date and count them
+    const showsByDate: Record<string, number> = {};
+    for (const show of performerShows) {
+      showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
+    }
 
-    // Check for Friday-Saturday-Sunday pattern with 4+ shows
-    const dates = Object.keys(showsByDate).sort();
-    
-    for (let i = 0; i < dates.length - 2; i++) {
-      const date1 = new Date(dates[i]);
-      const date2 = new Date(dates[i + 1]);
-      const date3 = new Date(dates[i + 2]);
-      
-      const day1 = date1.getDay();
-      const day2 = date2.getDay();
-      const day3 = date3.getDay();
-      
-      // Check if it's a Friday-Saturday-Sunday pattern
-      if (day1 === 5 && day2 === 6 && day3 === 0) {
-        const totalShows = 
-          showsByDate[dates[i]].length +
-          showsByDate[dates[i + 1]].length +
-          showsByDate[dates[i + 2]].length;
-        
-        // Allow up to 3 shows over Friday-Sunday (was too restrictive)
-        if (totalShows >= 4) {
-          return true;
+    // Find all dates where the performer has 2 or more shows
+    const doubleShowDates = Object.entries(showsByDate)
+      .filter(([_, count]) => count >= 2)
+      .map(([date, _]) => date);
+
+    // Check for consecutive Sat/Sun double shows
+    for (const dateStr of doubleShowDates) {
+      const date = new Date(dateStr + 'T12:00:00Z'); // Use midday UTC to avoid timezone shifts
+      if (date.getUTCDay() === 6) { // It's a Saturday
+        const nextDay = new Date(date);
+        nextDay.setUTCDate(date.getUTCDate() + 1);
+        const nextDayStr = nextDay.toISOString().split('T')[0];
+        if (doubleShowDates.includes(nextDayStr)) {
+          return true; // Found a Sat-Sun double-double
         }
       }
     }
-    
+
     return false;
   }
 
@@ -347,13 +330,13 @@ export class SchedulingAlgorithm {
             return false;
           }
           
-          // CHECK 2: Won't create excessive consecutive shows (relaxed from 3 to 4)
+          // CHECK 2: Won't create excessive consecutive shows (max 6)
           if (!this.canAssignPerformerToShow(member.name, showId)) {
             return false;
           }
           
-          // CHECK 3: Won't create weekend 4-show violation (relaxed)
-          if (this.wouldViolateWeekendRule(member.name, showId)) {
+          // CHECK 3: Won't create double-double weekend violation
+          if (this.wouldViolateDoubleDoubleRule(member.name, showId)) {
             return false;
           }
           
@@ -619,7 +602,7 @@ export class SchedulingAlgorithm {
       if (!isConsecutive) {
         // End current sequence if it's significant
         const sequenceLength = i - currentSequenceStart;
-        if (sequenceLength >= 4) { // Only report sequences of 4+ shows as problematic
+        if (sequenceLength > 1) { // Only care about sequences of 2 or more
           const startIndex = sortedIndexes[currentSequenceStart];
           const endIndex = sortedIndexes[i - 1];
           sequences.push({
@@ -637,7 +620,7 @@ export class SchedulingAlgorithm {
 
     // Handle final sequence
     const finalSequenceLength = sortedIndexes.length - currentSequenceStart;
-    if (finalSequenceLength >= 4) { // Only report sequences of 4+ shows as problematic
+    if (finalSequenceLength > 1) {
       const startIndex = sortedIndexes[currentSequenceStart];
       const endIndex = sortedIndexes[sortedIndexes.length - 1];
       sequences.push({
@@ -753,16 +736,45 @@ export class SchedulingAlgorithm {
       }
     }
 
-    // Use optimized consecutive shows analysis but be more lenient
+    // Check for double-double weekend rule
+    for (const member of this.castMembers) {
+      const memberAssignments = assignments.filter(a => a.performer === member.name && a.role !== "OFF");
+      
+      const showsByDate: Record<string, number> = {};
+      for (const assignment of memberAssignments) {
+        const show = activeShows.find(s => s.id === assignment.showId);
+        if (show) {
+          showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
+        }
+      }
+
+      const doubleShowDates = Object.entries(showsByDate)
+        .filter(([_, count]) => count >= 2)
+        .map(([date, _]) => date);
+
+      for (const dateStr of doubleShowDates) {
+        const date = new Date(dateStr + 'T12:00:00Z'); // Use midday UTC to avoid timezone shifts
+        if (date.getUTCDay() === 6) { // Saturday
+          const nextDay = new Date(date);
+          nextDay.setUTCDate(date.getUTCDate() + 1);
+          const nextDayStr = nextDay.toISOString().split('T')[0];
+          if (doubleShowDates.includes(nextDayStr)) {
+            errors.push(`${member.name} works a double on Saturday and Sunday (${dateStr} and ${nextDayStr}) - CRITICAL VIOLATION.`);
+          }
+        }
+      }
+    }
+
+    // Use optimized consecutive shows analysis
     const performerData = this.analyzeConsecutiveShows(assignments);
     for (const [memberName, data] of performerData) {
       for (const sequence of data.sequences) {
-        if (sequence.count >= 6) {
+        if (sequence.count > 7) { // 8+ is a critical error
           const suggestions = this.getConsecutiveShowSuggestions(memberName, sequence, assignments, activeShows);
           errors.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - CRITICAL VIOLATION. ${suggestions}`);
-        } else if (sequence.count >= 4) {
+        } else if (sequence.count > 6) { // 7 is a warning
           const suggestions = this.getConsecutiveShowSuggestions(memberName, sequence, assignments, activeShows);
-          warnings.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - consider redistributing some shows. ${suggestions}`);
+          warnings.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - exceeds recommended maximum of 6. ${suggestions}`);
         }
       }
     }
