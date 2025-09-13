@@ -229,12 +229,10 @@ export namespace scheduler {
         public async updateMember(params: RequestType<typeof api_scheduler_company_updateMember>): Promise<ResponseType<typeof api_scheduler_company_updateMember>> {
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
             const body: Record<string, any> = {
-                archiveCategory: params.archiveCategory,
-                archiveReason:   params.archiveReason,
-                eligibleRoles:   params.eligibleRoles,
-                name:            params.name,
-                order:           params.order,
-                status:          params.status,
+                eligibleRoles: params.eligibleRoles,
+                name:          params.name,
+                order:         params.order,
+                status:        params.status,
             }
 
             // Now make the actual call to the API
