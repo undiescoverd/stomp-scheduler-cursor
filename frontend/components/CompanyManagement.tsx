@@ -336,7 +336,7 @@ export default function CompanyManagement() {
                           </div>
                         </div>
                         <div className="flex items-center space-x-2 mt-4 pt-4 border-t">
-                          <Button variant="outline" size="sm" className="w-full" onClick={() => handleArchiveMember(member)}>Archive</Button>
+                          <Button variant="outline" size="sm" className="flex-1" onClick={() => handleArchiveMember(member)}>Archive</Button>
                           <Button variant="destructive" size="icon" onClick={() => handleDeleteMember(member)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       </div>
@@ -384,7 +384,7 @@ export default function CompanyManagement() {
                           </p>
                         </div>
                         <div className="flex items-center space-x-2 mt-4 pt-4 border-t">
-                          <Button variant="outline" size="sm" className="w-full text-green-600 hover:text-green-700" onClick={() => handleRestoreMember(member)}>
+                          <Button variant="outline" size="sm" className="flex-1 text-green-600 hover:text-green-700" onClick={() => handleRestoreMember(member)}>
                             <ArrowUp className="h-3 w-3 mr-1" />
                             Restore
                           </Button>
