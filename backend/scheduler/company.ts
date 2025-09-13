@@ -6,10 +6,8 @@ export interface CompanyMember {
   name: string;
   eligibleRoles: Role[];
   status: "active" | "archived";
-  archiveCategory?: "on_tour" | "substitute" | "alumni";
   dateAdded: Date;
   dateArchived?: Date;
-  archiveReason?: string;
   order: number;
 }
 
@@ -23,8 +21,6 @@ export interface AddMemberRequest {
   name: string;
   eligibleRoles: Role[];
   status?: "active" | "archived";
-  archiveCategory?: "on_tour" | "substitute" | "alumni";
-  archiveReason?: string;
 }
 
 export interface AddMemberResponse {
@@ -36,8 +32,6 @@ export interface UpdateMemberRequest {
   name?: string;
   eligibleRoles?: Role[];
   status?: "active" | "archived";
-  archiveCategory?: "on_tour" | "substitute" | "alumni";
-  archiveReason?: string;
   order?: number;
 }
 
@@ -110,10 +104,8 @@ export const addMember = api<AddMemberRequest, AddMemberResponse>(
       name: req.name.toUpperCase(),
       eligibleRoles: req.eligibleRoles,
       status: req.status || "active",
-      archiveCategory: req.archiveCategory,
       dateAdded: now,
       dateArchived: req.status === "archived" ? now : undefined,
-      archiveReason: req.archiveReason,
       order: req.status === "active" ? maxOrder + 1 : 0
     };
     
@@ -148,24 +140,16 @@ export const updateMember = api<UpdateMemberRequest, UpdateMemberResponse>(
       
       if (req.status === "archived") {
         member.dateArchived = now;
-        member.archiveCategory = req.archiveCategory;
-        member.archiveReason = req.archiveReason;
         member.order = 0; // Reset order for archived members
       } else if (req.status === "active") {
         // Moving back to active
         member.dateArchived = undefined;
-        member.archiveCategory = undefined;
-        member.archiveReason = undefined;
         
         // Assign new order at the end of active members
         const activeMembers = companyMembers.filter(m => m.status === "active" && m.id !== req.id);
         const maxOrder = Math.max(...activeMembers.map(m => m.order), -1);
         member.order = maxOrder + 1;
       }
-    } else if (member.status === "archived") {
-      // Update archive-specific fields
-      if (req.archiveCategory !== undefined) member.archiveCategory = req.archiveCategory;
-      if (req.archiveReason !== undefined) member.archiveReason = req.archiveReason;
     }
     
     companyMembers[memberIndex] = member;
