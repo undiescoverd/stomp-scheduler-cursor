@@ -300,7 +300,7 @@ export default function CompanyManagement() {
               </Button>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredCurrentCompany.length === 0 ? (
                 <div className="col-span-full text-center py-8 text-gray-500">
                   {searchTerm || roleFilter !== 'all' ? 'No cast members match your search' : 'No current company members'}
@@ -360,7 +360,7 @@ export default function CompanyManagement() {
                 Add Cast Member to Archive
               </Button>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredArchive.length === 0 ? (
                 <div className="col-span-full text-center py-8 text-gray-500">
                   {searchTerm || roleFilter !== 'all' ? 'No archived members match your search' : 'No archived members'}
