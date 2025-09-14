@@ -1,6 +1,7 @@
 {
-  "name": "leap-app",
+  "name": "stomp-scheduler-cursor",
   "version": "1.0.0",
+  "description": "STOMP Performance Scheduler - Cursor Development Version",
   "type": "module",
   "packageManager": "bun",
   "workspaces": [

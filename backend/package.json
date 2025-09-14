@@ -1,6 +1,7 @@
 {
-  "name": "backend",
+  "name": "stomp-scheduler-cursor-backend",
   "version": "1.0.0",
+  "description": "STOMP Scheduler Backend - Cursor Version",
   "type": "module",
   "packageManager": "bun",
   "scripts": {

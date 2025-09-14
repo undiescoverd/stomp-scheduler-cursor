@@ -39,7 +39,7 @@ The STOMP Performance Scheduler is a well-architected full-stack application wit
 ### 1. Configuration Issues
 
 #### Package Management Inconsistencies
-- **Root package.json naming**: Currently "leap-app" instead of project-specific name
+- **Root package.json naming**: Updated to "stomp-scheduler-cursor" for cursor development version
 - **Dependency duplications**: Several packages in both dependencies and devDependencies
   ```
   Frontend duplicates: @playwright/test, @tanstack/react-query, @testing-library/react, msw, vitest

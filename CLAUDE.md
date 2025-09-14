@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is STOMP Performance Scheduler - a full-stack application for managing theatrical performance schedules. The project uses an Encore backend with a React/TypeScript frontend, specifically designed for scheduling cast members across multiple roles and shows with complex constraints.
+This is STOMP Performance Scheduler - **CURSOR DEVELOPMENT VERSION** - a full-stack application for managing theatrical performance schedules. The project uses an Encore backend with a React/TypeScript frontend, specifically designed for scheduling cast members across multiple roles and shows with complex constraints.
+
+**Repository**: `stomp-scheduler-cursor` - Active development version for Cursor IDE  
+**Original Leap.new Version**: Preserved separately in `stomp-performance-scheduler`
 
 ### Architecture
 
@@ -19,7 +22,7 @@ This is STOMP Performance Scheduler - a full-stack application for managing thea
 ```bash
 cd backend
 encore run                    # Start Encore development server (typically http://localhost:4000)
-encore gen client --target leap # Generate frontend client from backend API
+encore gen client --target cursor # Generate frontend client from backend API
 ```
 
 ### Frontend Development
@@ -95,3 +98,10 @@ The application models theatrical scheduling with these core entities:
 - E2E tests require both backend and frontend running
 - TailwindCSS v4 is configured with custom animation support
 - MSW is configured for API mocking in tests
+
+## Cursor Development Version Notes
+
+- This is the active development version for Cursor IDE
+- Original Leap.new version remains untouched at `stomp-performance-scheduler`
+- All improvements and fixes will be implemented in this cursor version
+- Repository: https://github.com/undiescoverd/stomp-scheduler-cursor

@@ -1,6 +1,9 @@
-# Getting Started
+# Getting Started - STOMP Scheduler Cursor Version
 
-This project consists of an Encore application. Follow the steps below to get the app running locally.
+This project consists of an Encore application - **CURSOR DEVELOPMENT VERSION**. Follow the steps below to get the app running locally.
+
+**Repository**: `stomp-scheduler-cursor` - Active development version for Cursor IDE  
+**GitHub**: https://github.com/undiescoverd/stomp-scheduler-cursor
 
 ## Prerequisites
 
@@ -58,7 +61,7 @@ The frontend will be available at `http://localhost:5173` (or the next available
 To generate the frontend client, run the following command in the `backend` directory:
 
 ```bash
-encore gen client --target leap
+encore gen client --target cursor
 ```
 
 ## Deployment
@@ -82,7 +85,7 @@ encore auth login
 Add Encore's git remote to enable direct deployment:
 
 ```bash
-git remote add encore encore://stomp-performance-scheduler-hxdi
+git remote add encore encore://stomp-scheduler-cursor-[YOUR-APP-ID]
 ```
 
 #### Step 3: Deploy Your Application
@@ -95,7 +98,7 @@ git commit -m "Deploy to Encore Cloud"
 git push encore
 ```
 
-Monitor your deployment progress in the [Encore Cloud dashboard](https://app.encore.dev/stomp-performance-scheduler-hxdi/deploys).
+Monitor your deployment progress in the Encore Cloud dashboard.
 
 ## GitHub Integration (Recommended for Production)
 
@@ -104,7 +107,7 @@ For production applications, we recommend integrating with GitHub instead of usi
 ### Connecting Your GitHub Account
 
 1. Open your app in the **Encore Cloud dashboard**
-2. Navigate to Encore Cloud [GitHub Integration settings](https://app.encore.cloud/stomp-performance-scheduler-hxdi/settings/integrations/github)
+2. Navigate to Encore Cloud GitHub Integration settings for your cursor app
 3. Click **Connect Account to GitHub**
 4. Grant access to your repository
 

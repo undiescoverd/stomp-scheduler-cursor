@@ -1,6 +1,7 @@
 {
-  "name": "frontend",
+  "name": "stomp-scheduler-cursor-frontend",
   "version": "1.0.0",
+  "description": "STOMP Scheduler Frontend - Cursor Version",
   "type": "module",
   "packageManager": "bun",
   "dependencies": {
